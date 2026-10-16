@@ -435,11 +435,11 @@ body[data-view="base"] #viewBase { display: block; }
 .bc-op { background: rgba(56, 189, 248, .12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, .3); border-radius: 999px; padding: 3px 10px; font-size: 10px; cursor: pointer; }
 .bc-op-danger { background: rgba(239, 68, 68, .12); color: #f87171; border-color: rgba(239, 68, 68, .35); }
 
-/* ========== 沉浸观看：播放中隐藏信息卡/底部指标条；HUD 飞行电脑数据播放时保留；播放时点击地图切换顶部工具行显隐 ========== */
+/* ========== 沉浸观看：播放中隐藏信息卡；HUD 与顶部工具行点击联动显隐；暂停时全部常驻 ========== */
 .track-info, .hud-panel, .top-bar { transition: opacity .28s ease; }
 body.playing .track-info { opacity: 0; pointer-events: none; }
-body.ui-tap-hidden .top-bar { opacity: 0; pointer-events: none; }
-body:not(.playing).ui-tap-hidden .top-bar { opacity: 1; pointer-events: auto; }
+body.ui-tap-hidden .top-bar, body.ui-tap-hidden .hud-panel { opacity: 0; pointer-events: none; }
+body:not(.playing).ui-tap-hidden .top-bar, body:not(.playing).ui-tap-hidden .hud-panel { opacity: 1; pointer-events: auto; }
 
 /* ========== 自定义显示方案面板 ========== */
 .custom-body { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; max-height: 62vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
