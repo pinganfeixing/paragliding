@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>滑翔伞趣飞行 · App 下载</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #0b1220, #0e1a30 45%, #14203a); color: #e2e8f0; font-family: system-ui, -apple-system, "PingFang SC", sans-serif; padding: 24px; }
+    .box { width: 100%; max-width: 420px; text-align: center; }
+    .icon { width: 96px; height: 96px; border-radius: 24px; margin: 0 auto 18px; display: block; box-shadow: 0 10px 30px rgba(56, 189, 248, .25); }
+    h1 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+    .sub { font-size: 13px; color: #94a3b8; margin-bottom: 22px; line-height: 1.6; }
+    .dl-btn { display: block; width: 100%; padding: 15px 0; background: linear-gradient(135deg, #38bdf8, #0ea5e9); color: #06121f; border: none; border-radius: 999px; font-size: 17px; font-weight: 800; text-decoration: none; margin-bottom: 10px; }
+    .dl-btn:active { opacity: .85; }
+    .tips { font-size: 12px; color: #64748b; line-height: 1.8; }
+    .stats { margin-top: 18px; font-size: 12px; color: #7dd3fc; display: flex; gap: 14px; justify-content: center; }
+    .stats b { color: #fbbf24; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img class="icon" src="icons/icon-192.png" alt="滑翔伞趣飞行" />
+    <h1>滑翔伞趣飞行</h1>
+    <div class="sub">3D 滑翔伞轨迹复盘 · 飞手社区 · 附近基地<br/>IGC 轨迹回放 / 高度速度热气流分析</div>
+    <a class="dl-btn" href="apk/paragliding.apk" download>📦 下载安卓 App（APK）</a>
+    <div class="tips">
+      下载后点开安装，如提示"未知来源"请在设置中允许。<br/>
+      也可以直接用手机浏览器打开主站使用，无需安装：
+    </div>
+    <a class="dl-btn" style="background:rgba(56,189,248,.14);color:#38bdf8;border:1px solid rgba(56,189,248,.35);margin-top:8px" href="https://pinganfeixing.netlify.app" target="_blank">🌐 直接在线使用</a>
+    <div class="stats">
+      <span>下载页访问 <b id="busuanzi_value_page_pv">…</b> 次</span>
+      <span>独立访客 <b id="busuanzi_value_site_uv">…</b></span>
+    </div>
+  </div>
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</body>
+</html>
