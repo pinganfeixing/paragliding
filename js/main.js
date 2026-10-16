@@ -357,6 +357,15 @@
 
   // ============ 事件绑定 ============
   function bindEvents() {
+    // 导入按钮显式触发文件选择：安卓/iOS PWA 下 label 原生触发有时不弹窗
+    var importLabel = document.querySelector('label[for="fileInput"]');
+    if (importLabel) {
+      importLabel.addEventListener('click', function (e) {
+        e.preventDefault();
+        var f = document.getElementById('fileInput');
+        if (f) f.click();
+      });
+    }
     dom.file.addEventListener('change', onFile);
     dom.play.addEventListener('click', togglePlay);
     dom.speed.addEventListener('click', cycleSpeed);
