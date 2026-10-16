@@ -1222,15 +1222,16 @@
         pixelOffset: new cesium.Cartesian2(0, -30) // 图标浮在轨迹线上方
       },
       label: {
-        text: (state.custom && state.custom.name) || '默认',
-        font: '14px sans-serif',
+        text: '',
+        font: '13px sans-serif',
         fillColor: cesium.Color.fromCssColorString('#ffffff'),
         outlineColor: cesium.Color.fromCssColorString('#0b1220'),
-        outlineWidth: 3,
+        outlineWidth: 2,
         style: cesium.LabelStyle.FILL_AND_OUTLINE,
         verticalOrigin: cesium.VerticalOrigin.BOTTOM,
         pixelOffset: new cesium.Cartesian2(0, -62), // 名字显示在图标上方
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        show: false // 默认不显示名字标签（避免黑色描边"大黑点"感），自定义名字后才显示
       }
     });
     state.planeEntity = plane;
@@ -1244,7 +1245,10 @@
     if (!plane) return;
     plane.point.pixelSize = c.ballSize;
     plane.point.color = window.Cesium.Color.fromCssColorString(c.ballColor);
-    plane.label.text = c.name || '默认';
+    // 名字标签：只有用户自定义了名字才显示（默认不显示，避免黑色描边文字像"大黑点"）
+    var hasName = !!(c.name && c.name.trim() && c.name !== '默认');
+    plane.label.text = hasName ? c.name : '';
+    plane.label.show = hasName;
     var icon = planeIcon(c.shape, c.ballColor);
     if (icon) {
       plane.billboard.image = icon;
@@ -1445,35 +1449,40 @@
   // 主循环（rAF 驱动播放）
   // 【性能加固】非复盘视图（社区/飞行记录）下跳过全部重型更新（播放推进/尾迹/闯入检测），
   // tick 仅保留轻量 rAF，保证切页后页面流畅、按钮即时响应。
-  // 【播放加固】每帧全部子调用套 try/catch：任何渲染子函数出错都不能中断 rAF 主循环，
-  // 否则播放会整体停摆（进度条不动、滑翔伞不飞）。
+  // 【播放加固】播放推进改为独立 100ms 心跳（setInterval），与渲染帧率彻底解耦：
+  // 即使 rAF 被暂停（后台标签页/渲染卡顿）或任何渲染子函数报错，进度条与滑翔伞也照常前进。
+  var _playLastT = 0;
+  var _playHeartbeat = setInterval(function () {
+    try {
+      if (document.body.dataset.view !== 'replay') return;
+      if (!state.playing || state.totalMs <= 1) return;
+      var now = Date.now();
+      var dt = Math.min((now - (_playLastT || now)) / 1000, 0.25);
+      _playLastT = now;
+      state.playMs += dt * 1000 * SPEEDS[state.speedIdx];
+      if (state.playMs >= state.totalMs) {
+        state.playMs = state.totalMs;
+        state.playing = false;
+        dom.play.textContent = '▶';
+      }
+      dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
+      updateSeekFill();
+      updateHud();
+      syncChartCursor();
+    } catch (err) { /* 心跳永不因渲染错误中断 */ }
+  }, 100);
+
   var _lastT = 0;
   function tick() {
     try {
       var inReplay = document.body.dataset.view === 'replay';
-      if (inReplay && state.playing && state.totalMs > 1) {
-        var now = Date.now();
-        var dt = Math.min((now - (_lastT || now)) / 1000, 0.1);
-        _lastT = now;
-        state.playMs += dt * 1000 * SPEEDS[state.speedIdx];
-        if (state.playMs >= state.totalMs) {
-          state.playMs = state.totalMs;
-          state.playing = false;
-          dom.play.textContent = '▶';
-        }
-        dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
-        updateSeekFill();
-        updateHud();
-        syncChartCursor();
-      } else {
-        _lastT = Date.now();
-      }
+      if (!inReplay) _lastT = Date.now();
       if (inReplay) {
         try { updateTail(); } catch (err) {}   // 尾迹窗口跟随播放位置（含拖动跳转）
         try { checkDangerZone(); } catch (err) {} // 禁飞危险区域闯入告警
         try { rotatePlaneIcon(); } catch (err) {} // 滑翔伞/飞机图标朝轨迹方向
       }
-    } catch (err) { /* 播放循环永不因子错误中断 */ }
+    } catch (err) { /* 渲染循环永不因子错误中断 */ }
     requestAnimationFrame(tick);
   }
 
