@@ -2741,7 +2741,8 @@
         document.getElementById('fileUpload').click();
       });
     });
-    document.getElementById('btnBaseReplyOk').addEventListener('click', postBaseComment);
+    var baseReplyOk = document.getElementById('baseReplyOk');
+    if (baseReplyOk) baseReplyOk.addEventListener('click', postBaseComment);
     var replyText = document.getElementById('baseReplyText');
     if (replyText) replyText.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') postBaseComment();
