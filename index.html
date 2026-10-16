@@ -70,6 +70,7 @@
           <button class="btn" data-src="tianditu">天地图</button>
         </div>
         <button class="btn" id="btnSites">基地图层</button>
+        <button class="btn" id="btnCustom">自定义</button>
         <button class="btn" id="btnFollow">相机: 跟随</button>
         <button class="btn" id="btnChart">高度曲线</button>
         <button class="btn" id="btnColor">着色:速度</button>
@@ -370,7 +371,68 @@
     </div>
   </div>
 
-  <!-- ========== 自定义显示弹层（已回退移除，仅保留上传基地弹层） ========== -->
+  <!-- ========== 自定义显示弹层（轨迹颜色/粗细/小球颜色大小；飞行标识与轨迹显示固定隐藏） ========== -->
+  <div id="customModal" class="modal">
+    <div class="modal-box">
+      <div class="modal-title">自定义显示</div>
+      <div class="custom-body">
+        <div class="cv-row"><label>方案名称</label><input id="cvName" placeholder="如：红色夜航" maxlength="12" /></div>
+        <div class="cv-row"><label>轨迹颜色</label>
+          <div class="cv-swatches" id="cvTrajColor">
+            <button class="cv-swatch" data-v="">自动</button>
+            <button class="cv-swatch" data-v="#f43f5e">红</button>
+            <button class="cv-swatch" data-v="#f97316">橙</button>
+            <button class="cv-swatch" data-v="#facc15">黄</button>
+            <button class="cv-swatch" data-v="#4ade80">绿</button>
+            <button class="cv-swatch" data-v="#22d3ee">青</button>
+            <button class="cv-swatch" data-v="#3b82f6">蓝</button>
+            <button class="cv-swatch" data-v="#a78bfa">紫</button>
+            <button class="cv-swatch" data-v="#f472b6">粉</button>
+          </div>
+        </div>
+        <div class="cv-row"><label>轨迹粗细</label>
+          <div class="cv-segs" id="cvTrajWidth">
+            <button data-v="1.2">细</button><button data-v="1.8">中</button><button data-v="2.8">粗</button><button data-v="4">特粗</button>
+          </div>
+        </div>
+        <div class="cv-row"><label>小球颜色</label>
+          <div class="cv-swatches" id="cvBallColor">
+            <button class="cv-swatch" data-v="#3b82f6">蓝</button>
+            <button class="cv-swatch" data-v="#ffffff">白</button>
+            <button class="cv-swatch" data-v="#f43f5e">红</button>
+            <button class="cv-swatch" data-v="#facc15">黄</button>
+            <button class="cv-swatch" data-v="#4ade80">绿</button>
+            <button class="cv-swatch" data-v="#22d3ee">青</button>
+            <button class="cv-swatch" data-v="#a78bfa">紫</button>
+            <button class="cv-swatch" data-v="#f472b6">粉</button>
+          </div>
+        </div>
+        <div class="cv-row"><label>小球大小</label>
+          <div class="cv-segs" id="cvBallSize">
+            <button data-v="7">小</button><button data-v="9">中</button><button data-v="12">大</button>
+          </div>
+        </div>
+        <!-- 以下两组固定隐藏：飞行标识固定为圆点，轨迹显示固定为 30 秒尾迹窗口 -->
+        <div class="cv-row" style="display:none"><label>飞行标识</label>
+          <div class="cv-segs" id="cvShape">
+            <button data-v="point">圆点</button><button data-v="paraglider">滑翔伞</button><button data-v="plane">飞机</button>
+          </div>
+        </div>
+        <div class="cv-row" style="display:none"><label>轨迹显示</label>
+          <div class="cv-segs" id="cvShowAll">
+            <button data-v="0">尾迹窗口</button><button data-v="1">全部轨迹</button>
+          </div>
+        </div>
+        <div class="cv-row"><label>已保存方案</label>
+          <div id="cvPresets"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="pv-btn pv-ghost" id="cvClose">关闭</button>
+        <button class="pv-btn" id="cvSave">应用并保存</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ========== 上传基地弹层 ========== -->
   <div id="baseModal" class="modal">
