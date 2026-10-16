@@ -101,15 +101,44 @@
     try { localStorage.setItem(SCHEMES_KEY, JSON.stringify(list)); } catch (e) { /* 忽略 */ }
   }
   // 飞行标识 SVG 图标（白底+彩色描边，朝上=北，播放时按轨迹方向旋转）
+  // 飞行标识图标：用 Canvas 绘制 PNG（而非 SVG data-URI）。
+  // 【修复】SVG data-URI 在部分环境（含 Cesium billboard）渲染为黑色占位块，
+  // Canvas 输出 PNG 数据链对所有浏览器/Cesium 版本渲染稳定。
   function planeIcon(shape, color) {
     var c = color || '#3b82f6';
-    var svg;
+    var cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 64;
+    var g = cv.getContext('2d');
+    if (!g) return null;
+    g.lineJoin = 'round'; g.lineCap = 'round';
     if (shape === 'paraglider') {
-      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M6 28 Q32 4 58 28 L50 32 Q32 16 14 32 Z" fill="#ffffff" stroke="' + c + '" stroke-width="3.5" stroke-linejoin="round"/><path d="M32 32 L24 52 M32 32 L32 54 M32 32 L40 52" stroke="' + c + '" stroke-width="3" stroke-linecap="round"/><circle cx="32" cy="58" r="3.5" fill="' + c + '"/></svg>';
+      // 白色伞翼 + 彩色描边，伞绳垂线 + 底部飞行员圆点
+      g.fillStyle = '#ffffff'; g.strokeStyle = c; g.lineWidth = 3.5;
+      g.beginPath();
+      g.moveTo(6, 28);
+      g.quadraticCurveTo(32, 4, 58, 28);
+      g.lineTo(50, 32);
+      g.quadraticCurveTo(32, 16, 14, 32);
+      g.closePath();
+      g.fill(); g.stroke();
+      g.strokeStyle = c; g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(32, 32); g.lineTo(24, 52);
+      g.moveTo(32, 32); g.lineTo(32, 54);
+      g.moveTo(32, 32); g.lineTo(40, 52);
+      g.stroke();
+      g.fillStyle = c;
+      g.beginPath(); g.arc(32, 58, 3.5, 0, Math.PI * 2); g.fill();
     } else if (shape === 'plane') {
-      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M6 36 L24 30 L32 10 L36 12 L30 32 L46 26 L58 34 L36 40 L30 56 L26 54 L32 40 L6 44 Z" fill="#ffffff" stroke="' + c + '" stroke-width="3" stroke-linejoin="round"/></svg>';
+      g.fillStyle = '#ffffff'; g.strokeStyle = c; g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(6, 36); g.lineTo(24, 30); g.lineTo(32, 10); g.lineTo(36, 12);
+      g.lineTo(30, 32); g.lineTo(46, 26); g.lineTo(58, 34); g.lineTo(36, 40);
+      g.lineTo(30, 56); g.lineTo(26, 54); g.lineTo(32, 40); g.lineTo(6, 44);
+      g.closePath();
+      g.fill(); g.stroke();
     } else { return null; }
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    return cv.toDataURL('image/png');
   }
 
   // 基地图层（起飞场/降落场/危险禁飞区）：默认关闭；点位与区域全部由
@@ -1446,43 +1475,40 @@
     });
   }
 
-  // 主循环（rAF 驱动播放）
-  // 【性能加固】非复盘视图（社区/飞行记录）下跳过全部重型更新（播放推进/尾迹/闯入检测），
-  // tick 仅保留轻量 rAF，保证切页后页面流畅、按钮即时响应。
-  // 【播放加固】播放推进改为独立 100ms 心跳（setInterval），与渲染帧率彻底解耦：
-  // 即使 rAF 被暂停（后台标签页/渲染卡顿）或任何渲染子函数报错，进度条与滑翔伞也照常前进。
+  // 主循环（播放心跳驱动，与渲染帧率彻底解耦）
+  // 【播放加固】播放推进、尾迹窗口、图标朝向、禁飞闯入检测全部并入 100ms 心跳：
+  // 即使 rAF 被暂停（后台标签页/渲染卡顿）或任何渲染子函数报错，进度条、滑翔伞与
+  // 30 秒尾迹窗口也照常前进跟随。
   var _playLastT = 0;
   var _playHeartbeat = setInterval(function () {
     try {
       if (document.body.dataset.view !== 'replay') return;
-      if (!state.playing || state.totalMs <= 1) return;
-      var now = Date.now();
-      var dt = Math.min((now - (_playLastT || now)) / 1000, 0.25);
-      _playLastT = now;
-      state.playMs += dt * 1000 * SPEEDS[state.speedIdx];
-      if (state.playMs >= state.totalMs) {
-        state.playMs = state.totalMs;
-        state.playing = false;
-        dom.play.textContent = '▶';
+      if (state.playing && state.totalMs > 1) {
+        var now = Date.now();
+        var dt = Math.min((now - (_playLastT || now)) / 1000, 0.25);
+        _playLastT = now;
+        state.playMs += dt * 1000 * SPEEDS[state.speedIdx];
+        if (state.playMs >= state.totalMs) {
+          state.playMs = state.totalMs;
+          state.playing = false;
+          dom.play.textContent = '▶';
+        }
+        dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
+        updateSeekFill();
+        updateHud();
+        syncChartCursor();
       }
-      dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
-      updateSeekFill();
-      updateHud();
-      syncChartCursor();
+      // 尾迹窗口跟随播放位置（含拖动跳转）
+      try { updateTail(); } catch (err) {}
+      // 禁飞危险区域闯入告警
+      try { checkDangerZone(); } catch (err) {}
+      // 滑翔伞/飞机图标朝轨迹方向
+      try { rotatePlaneIcon(); } catch (err) {}
     } catch (err) { /* 心跳永不因渲染错误中断 */ }
   }, 100);
 
-  var _lastT = 0;
+  // rAF 存活心跳（保底渲染帧循环，当前不承载业务逻辑，全部业务并入上面 100ms 心跳）
   function tick() {
-    try {
-      var inReplay = document.body.dataset.view === 'replay';
-      if (!inReplay) _lastT = Date.now();
-      if (inReplay) {
-        try { updateTail(); } catch (err) {}   // 尾迹窗口跟随播放位置（含拖动跳转）
-        try { checkDangerZone(); } catch (err) {} // 禁飞危险区域闯入告警
-        try { rotatePlaneIcon(); } catch (err) {} // 滑翔伞/飞机图标朝轨迹方向
-      }
-    } catch (err) { /* 渲染循环永不因子错误中断 */ }
     requestAnimationFrame(tick);
   }
 
