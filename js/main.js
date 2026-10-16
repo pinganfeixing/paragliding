@@ -1150,17 +1150,16 @@
       return;
     }
     // 播放/拖动时：隐藏预览线，显示 30s 尾迹窗口
-    // 「全部轨迹出现」开启后：保留整条淡色预览线（未飞部分），已飞部分用主线高亮
-    if (state.previewLine) state.previewLine.show = !!(state.custom && state.custom.showAll);
+    if (state.previewLine) state.previewLine.show = false;
 
     var pos = state.terrainPositions;
     var t = state.times;
     var play = state.playMs;
-    // 观看窗口：默认只展示"最近 30 秒观看时间"的轨迹。
+    // 观看窗口：无论倍速 1x/2x/4x，画面始终只展示"最近 30 秒观看时间"的轨迹。
     // 窗口原始宽度 = 30s × 倍速（2x 时屏幕上对应原始 60 秒轨迹，30 秒观看时间内淡出完毕）
-    // 「全部轨迹出现」：窗口放大到整条轨迹（从起点到当前点全部高亮）
+    // 【回退】固定 30s 尾迹窗口（移除自定义"全部轨迹出现"开关）
     var spd = SPEEDS[state.speedIdx];
-    var win = (state.custom && state.custom.showAll) ? Number.MAX_SAFE_INTEGER : 30000 * spd;
+    var win = 30000 * spd;
 
     // 段级缓存赋值：起点/终点与上次一致则跳过（positions 引用不变 → Cesium 不重建几何）
     function setSeg(seg, start, end) {
@@ -1211,11 +1210,6 @@
     for (var hide = shown; hide < state.mainPool.length; hide++) state.mainPool[hide].show = false;
 
     // —— 尾迹层：30-60s / 60-90s / 90-120s 前（观看时间，随倍速缩放），逐层淡出 ——
-    // 「全部轨迹出现」开启：整条淡色预览 + 主线高亮已覆盖全程，无需渐隐尾迹层（避免重复叠加）
-    if (state.custom && state.custom.showAll) {
-      state.tailLayers.forEach(function (l) { l.show = false; });
-      return;
-    }
     [[-60000, -30000, 0], [-90000, -60000, 1], [-120000, -90000, 2]].forEach(function (w, li) {
       var a2 = lowerBound(t, Math.max(0, play + w[0] * spd));
       var b2 = lowerBound(t, Math.max(0, play + w[1] * spd));
@@ -1228,7 +1222,9 @@
     });
   }
 
-  // 当前位置点：默认红色实心小圆点；可选滑翔伞/飞机图标（按轨迹方向旋转，浮在轨迹上方，带名字）
+  // 当前位置点：纯蓝色实心小圆点（跟随飞行点位实时移动，稳定渲染不出错）
+  // 【回退】移除自定义滑翔伞/飞机图标与名字标签（SVG/Canvas 图标在部分环境渲染为黑色占位块），
+  // 回到 v3.6"纯蓝点"方案——用户确认该方案飞行一切正常。
   // 【性能优化】位置改为时间线性插值：消除离散点跳变造成的“一帧一帧”卡顿感
   function renderPlane() {
     var cesium = window.Cesium;
@@ -1237,18 +1233,20 @@
         return planePosAt(state.playMs);
       }, false),
       point: {
-        pixelSize: 9,
-        color: cesium.Color.fromCssColorString('#f43f5e'), // 红色
+        pixelSize: 10,
+        color: cesium.Color.fromCssColorString('#3b82f6'), // 纯蓝
+        outlineColor: cesium.Color.WHITE,
+        outlineWidth: 2,
         disableDepthTestDistance: Number.POSITIVE_INFINITY // 不被山体遮挡
       },
       billboard: {
-        image: planeIcon('paraglider', '#f43f5e'),
+        image: planeIcon('paraglider', '#3b82f6'),
         width: 31, height: 31,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
         rotation: 0,
-        show: false,
+        show: false, // 图标功能已回退关闭，避免任何渲染占位问题
         verticalOrigin: cesium.VerticalOrigin.BOTTOM,
-        pixelOffset: new cesium.Cartesian2(0, -30) // 图标浮在轨迹线上方
+        pixelOffset: new cesium.Cartesian2(0, -30)
       },
       label: {
         text: '',
@@ -1258,38 +1256,25 @@
         outlineWidth: 2,
         style: cesium.LabelStyle.FILL_AND_OUTLINE,
         verticalOrigin: cesium.VerticalOrigin.BOTTOM,
-        pixelOffset: new cesium.Cartesian2(0, -62), // 名字显示在图标上方
+        pixelOffset: new cesium.Cartesian2(0, -62),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        show: false // 默认不显示名字标签（避免黑色描边"大黑点"感），自定义名字后才显示
+        show: false // 名字标签默认关闭
       }
     });
     state.planeEntity = plane;
     applyPlaneStyle();
   }
 
-  // 应用自定义方案到飞行标识（小球颜色/大小，滑翔伞/飞机图标，图标上方名字）
+  // 飞行标识固定为纯蓝点（回退自定义方案，保证渲染稳定）
   function applyPlaneStyle() {
-    var c = state.custom || CUSTOM_DEFAULT;
     var plane = state.planeEntity;
     if (!plane) return;
-    plane.point.pixelSize = c.ballSize;
-    plane.point.color = window.Cesium.Color.fromCssColorString(c.ballColor);
-    // 名字标签：只有用户自定义了名字才显示（默认不显示，避免黑色描边文字像"大黑点"）
-    var hasName = !!(c.name && c.name.trim() && c.name !== '默认');
-    plane.label.text = hasName ? c.name : '';
-    plane.label.show = hasName;
-    var icon = planeIcon(c.shape, c.ballColor);
-    if (icon) {
-      plane.billboard.image = icon;
-      var sz = c.ballSize + 22;
-      plane.billboard.width = sz;
-      plane.billboard.height = sz;
-      plane.billboard.show = true;
-      plane.point.show = false;
-    } else {
-      plane.billboard.show = false;
-      plane.point.show = true;
-    }
+    plane.point.pixelSize = 10;
+    plane.point.color = window.Cesium.Color.fromCssColorString('#3b82f6');
+    plane.point.outlineColor = window.Cesium.Color.WHITE;
+    plane.point.outlineWidth = 2;
+    plane.billboard.show = false;
+    plane.label.show = false;
   }
 
   // 播放中按轨迹方向旋转图标（滑翔伞/飞机朝运动方向）
