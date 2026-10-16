@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.pinganfeixing.app",
+        "sha256_cert_fingerprints": ["3F:00:B1:32:C4:FA:21:76:67:41:0A:7C:91:06:23:33:7E:F4:23:5E:4D:F4:88:11:36:A5:77:5A:46:89:B0:DF"]
+      }
+    }]
