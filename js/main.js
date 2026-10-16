@@ -1265,16 +1265,19 @@
     applyPlaneStyle();
   }
 
-  // 飞行标识固定为纯蓝点（回退自定义方案，保证渲染稳定）
+  // 应用自定义样式到飞行标识（小球颜色/大小；固定圆点，图标功能不启用避免渲染占位；名字仅自定义后显示）
   function applyPlaneStyle() {
+    var c = state.custom || CUSTOM_DEFAULT;
     var plane = state.planeEntity;
     if (!plane) return;
-    plane.point.pixelSize = 10;
-    plane.point.color = window.Cesium.Color.fromCssColorString('#3b82f6');
+    plane.point.pixelSize = c.ballSize;
+    plane.point.color = window.Cesium.Color.fromCssColorString(c.ballColor);
     plane.point.outlineColor = window.Cesium.Color.WHITE;
     plane.point.outlineWidth = 2;
-    plane.billboard.show = false;
-    plane.label.show = false;
+    plane.billboard.show = false; // 固定圆点（不再使用滑翔伞/飞机图标，杜绝黑色占位块）
+    var hasName = !!(c.name && c.name.trim() && c.name !== '默认');
+    plane.label.text = hasName ? c.name : '';
+    plane.label.show = hasName;
   }
 
   // 播放中按轨迹方向旋转图标（滑翔伞/飞机朝运动方向）
