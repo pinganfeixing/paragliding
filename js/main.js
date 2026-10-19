@@ -1047,26 +1047,22 @@
     });
     state.previewLine = preview;
 
-    // 渐隐尾迹层（固定淡红色，透明度/宽度逐层递减）
-    [
-      { from: -60000, to: -30000, alpha: 0.4, width: 1.0 },
-      { from: -90000, to: -60000, alpha: 0.15, width: 0.9 },
-      { from: -120000, to: -90000, alpha: 0.06, width: 0.9 }
-    ].forEach(function (l) {
-      var e = viewer.entities.add({
-        polyline: {
-          positions: [],
-          width: l.width,
-          material: new cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.08,
-            color: cesium.Color.fromCssColorString('#f43f5e').withAlpha(l.alpha)
-          }),
-          arcType: cesium.ArcType.NONE
-        }
-      });
-      e.show = false;
-      state.tailLayers.push(e);
+    // 过渡尾段（原 3 层低透明尾迹已移除——低透明度+稀疏点会渲染成散点，观感差）：
+    // 主线 30s 窗口之后的一小段（30-45s 前），半透明延续主色，随播放窗口前移
+    // 整段直接消失（无逐点变暗过程），消失过程平滑连续。
+    var fade = viewer.entities.add({
+      polyline: {
+        positions: [],
+        width: 1.2,
+        material: new cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.08,
+          color: cesium.Color.fromCssColorString('#facc15').withAlpha(0.45)
+        }),
+        arcType: cesium.ArcType.NONE
+      }
     });
+    fade.show = false;
+    state.tailLayers.push(fade);
     state._lastTailAt = 0;
   }
 
@@ -1183,6 +1179,7 @@
     var a = lowerBound(t, Math.max(0, play - win));
     var b = lowerBound(t, play);
     var shown = 0;
+    var lastRunColor = null;
     if (b - a >= 2) {
       var runs = [];
       for (var i = a + 1; i < b; i++) {
@@ -1204,6 +1201,7 @@
         setSeg(seg, runs[r].start, runs[r].end);
         seg.show = true;
         shown = r + 1;
+        lastRunColor = runs[r].color;
       }
     } else {
       // 兜底（绝不出现轨迹消失）：
@@ -1218,17 +1216,25 @@
     }
     for (var hide = shown; hide < state.mainPool.length; hide++) state.mainPool[hide].show = false;
 
-    // —— 尾迹层：30-60s / 60-90s / 90-120s 前（观看时间，随倍速缩放），逐层淡出 ——
-    [[-60000, -30000, 0], [-90000, -60000, 1], [-120000, -90000, 2]].forEach(function (w, li) {
-      var a2 = lowerBound(t, Math.max(0, play + w[0] * spd));
-      var b2 = lowerBound(t, Math.max(0, play + w[1] * spd));
-      if (b2 - a2 >= 2) {
-        setSeg(state.tailLayers[w[2]], a2, b2 - 1);
-        state.tailLayers[w[2]].show = true;
-      } else {
-        state.tailLayers[w[2]].show = false;
+    // —— 过渡尾段：主线之后 15s（play-45s×spd → play-30s×spd），
+    //    半透明延续主色，整段截断消失（无点状、无逐层淡出）——
+    var ft = state.tailLayers[0];
+    var a3 = lowerBound(t, Math.max(0, play - 45000 * spd));
+    var b3 = lowerBound(t, Math.max(0, play - win));
+    if (b3 - a3 >= 2) {
+      var tailColor = lastRunColor || '#facc15';
+      if (ft._color !== tailColor) {
+        ft.polyline.material = new window.Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.08,
+          color: window.Cesium.Color.fromCssColorString(tailColor).withAlpha(0.45)
+        });
+        ft._color = tailColor;
       }
-    });
+      setSeg(ft, a3, b3 - 1);
+      ft.show = true;
+    } else {
+      ft.show = false;
+    }
   }
 
   // 当前位置点：纯蓝色实心小圆点（跟随飞行点位实时移动，稳定渲染不出错）
