@@ -17,6 +17,77 @@
   var DB_VERSION = 4;
   var SESSION_KEY = 'sanji_session';
 
+  // ================= 云共享层（CloudBase 免费环境） =================
+  // 社区数据（tracks 飞行记录 / sites 基地 / comments 留言）接入云数据库，
+  // 所有访问者共享同一份数据；账号、飞行日志、装备等个人数据仍只存本机。
+  // 云端不可用时自动降级为纯本地（离线照常使用）。
+  var CLOUD_ENV = 'sanji-h5-d6gx37faiab04a99b';
+  var SHARED_STORES = { tracks: 1, sites: 1, comments: 1 };
+  var _cloudReady = false;
+  var _cloudBusy = false;
+  var _cloudApp = null;
+  var _cloudDb = null;
+
+  function initCloud() {
+    if (_cloudReady) return Promise.resolve(true);
+    if (_cloudBusy) return Promise.resolve(false);
+    if (!window.cloudbase) return Promise.resolve(false);
+    _cloudBusy = true;
+    return new Promise(function (resolve) {
+      try {
+        var app = window.cloudbase.init({ env: CLOUD_ENV });
+        _cloudApp = app;
+        var auth = app.auth({ persistence: 'local' });
+        auth.signInAnonymously().then(function () {
+          _cloudDb = app.database();
+          _cloudReady = true;
+          _cloudBusy = false;
+          resolve(true);
+        }).catch(function () {
+          _cloudBusy = false;
+          resolve(false);
+        });
+      } catch (e) {
+        _cloudBusy = false;
+        resolve(false);
+      }
+    });
+  }
+
+  function cloudGetAll(store) {
+    if (!_cloudReady) return Promise.resolve([]);
+    return _cloudDb.collection(store).limit(1000).get().then(function (res) {
+      return (res && res.data) || [];
+    }).catch(function () { return []; });
+  }
+
+  function cloudAdd(store, obj) {
+    if (!_cloudReady) return Promise.reject(new Error('cloud off'));
+    var doc = Object.assign({}, obj);
+    delete doc.id;
+    return _cloudDb.collection(store).add(doc).then(function (res) {
+      return (res && res.id) || null;
+    });
+  }
+
+  function cloudUpdate(store, id, patch) {
+    if (!_cloudReady || !id) return Promise.resolve();
+    return _cloudDb.collection(store).doc(String(id)).update(patch).catch(function () {});
+  }
+
+  function cloudRemove(store, id) {
+    if (!_cloudReady || !id) return Promise.resolve();
+    return _cloudDb.collection(store).doc(String(id)).remove().catch(function () {});
+  }
+
+  function isCloudId(id) {
+    return typeof id === 'string' && id.charAt(0) !== 'L';
+  }
+
+  function genLocalId() {
+    return 'L' + Date.now().toString(36) + Math.floor(Math.random() * 1679616).toString(36);
+  }
+
   // 预置滑翔基地（用户可自定义新增）
   var PRESET_BASES = [
     '泰山伞场', '徂徕山', '莲花山', '济南南部山区',
@@ -66,22 +137,70 @@
         req.onsuccess = function () { resolve(req.result || []); };
         req.onerror = function () { reject(req.error); };
       });
+    }).then(function (localList) {
+      // 非共享表：仅本地
+      if (!SHARED_STORES[store]) return localList;
+      // 共享表：合并云端（云端为权威，本地去重），云端失败降级本地
+      return initCloud().then(function (ok) {
+        if (!ok) return localList;
+        return cloudGetAll(store).then(function (cloudList) {
+          var map = {};
+          localList.forEach(function (x) { map['id:' + x.id] = x; });
+          cloudList.forEach(function (c) {
+            var rec = Object.assign({}, c);
+            delete rec._id;
+            rec.id = c._id;
+            map['id:' + rec.id] = rec;
+          });
+          var out = [];
+          Object.keys(map).forEach(function (k) { out.push(map[k]); });
+          return out;
+        });
+      });
     });
   }
 
   function add(store, obj) {
-    return openDB().then(function (db) {
-      return new Promise(function (resolve, reject) {
-        var t = db.transaction(store, 'readwrite');
-        var req = t.objectStore(store).add(obj);
-        req.onsuccess = function () { resolve(req.result); };
-        req.onerror = function () { reject(req.error); };
+    // 非共享表：本地入库
+    if (!SHARED_STORES[store]) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var t = db.transaction(store, 'readwrite');
+          var req = t.objectStore(store).add(obj);
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = function () { reject(req.error); };
+        });
+      });
+    }
+    // 共享表：云端优先（id=云端 _id），云端不可用时本地生成 L 前缀唯一 id
+    return initCloud().then(function (ok) {
+      if (!ok) {
+        var lid = genLocalId();
+        return openDB().then(function (db) {
+          return new Promise(function (resolve, reject) {
+            var t = db.transaction(store, 'readwrite');
+            var req = t.objectStore(store).add(Object.assign({}, obj, { id: lid }));
+            req.onsuccess = function () { resolve(lid); };
+            req.onerror = function () { reject(req.error); };
+          });
+        });
+      }
+      return cloudAdd(store, obj).then(function (cid) {
+        var localId = cid || genLocalId();
+        return openDB().then(function (db) {
+          return new Promise(function (resolve, reject) {
+            var t = db.transaction(store, 'readwrite');
+            var req = t.objectStore(store).add(Object.assign({}, obj, { id: localId }));
+            req.onsuccess = function () { resolve(localId); };
+            req.onerror = function () { reject(req.error); };
+          });
+        });
       });
     });
   }
 
   function del(store, key) {
-    return openDB().then(function (db) {
+    var pLocal = openDB().then(function (db) {
       return new Promise(function (resolve, reject) {
         var t = db.transaction(store, 'readwrite');
         var req = t.objectStore(store).delete(key);
@@ -89,11 +208,18 @@
         req.onerror = function () { reject(req.error); };
       });
     });
+    if (SHARED_STORES[store] && isCloudId(key)) {
+      return initCloud().then(function (ok) {
+        if (!ok) return pLocal;
+        return cloudRemove(store, key).then(function () { return pLocal; });
+      });
+    }
+    return pLocal;
   }
 
   // 覆盖更新整条记录（点赞/收藏等字段变更用）
   function put(store, obj) {
-    return openDB().then(function (db) {
+    var pLocal = openDB().then(function (db) {
       return new Promise(function (resolve, reject) {
         var t = db.transaction(store, 'readwrite');
         var req = t.objectStore(store).put(obj);
@@ -101,6 +227,15 @@
         req.onerror = function () { reject(req.error); };
       });
     });
+    if (SHARED_STORES[store] && obj && isCloudId(obj.id)) {
+      var patch = Object.assign({}, obj);
+      delete patch.id;
+      return initCloud().then(function (ok) {
+        if (!ok) return pLocal;
+        return cloudUpdate(store, obj.id, patch).then(function () { return pLocal; });
+      });
+    }
+    return pLocal;
   }
 
   function getByIndex(store, idx, value) {
@@ -110,6 +245,23 @@
         var req = t.objectStore(store).index(idx).getAll(value);
         req.onsuccess = function () { resolve(req.result || []); };
         req.onerror = function () { reject(req.error); };
+      });
+    }).then(function (localList) {
+      if (!SHARED_STORES[store]) return localList;
+      return initCloud().then(function (ok) {
+        if (!ok) return localList;
+        return cloudGetAll(store).then(function (cloudList) {
+          var out = localList.slice();
+          cloudList.forEach(function (c) {
+            if (c[idx] === value) {
+              var rec = Object.assign({}, c);
+              delete rec._id;
+              rec.id = c._id;
+              out.push(rec);
+            }
+          });
+          return out;
+        });
       });
     });
   }
@@ -277,7 +429,7 @@
     profile: function (userId) {
       return Promise.all([getAll('users'), getAll('tracks')]).then(function (r) {
         var users = r[0], tracks = r[1];
-        var u = users.filter(function (x) { return x.id === userId; })[0] || null;
+        var u = users.filter(function (x) { return x.id === userId || x.nickname === userId; })[0] || null;
         var pub = tracks.filter(function (t) {
           return t.authorId === userId && (t.visibility || (t.shared ? 'public' : 'private')) === 'public';
         });
