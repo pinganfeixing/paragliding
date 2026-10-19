@@ -731,7 +731,7 @@
           return f.date && new Date(f.date).getTime() >= yearStart;
         });
         var tracks = res[1].filter(function (t) {
-          return t.createdAt && t.createdAt >= yearStart && (!t.authorId || !uid || t.authorId === uid);
+          return t.createdAt && t.createdAt >= yearStart && (!t.authorId || !uid || t.authorId === uid || t.authorId === me.nickname);
         });
       var totalCount = flylogs.reduce(function (s, f) { return s + (Number(f.count) || 1); }, 0) + tracks.length;
       var totalSec = flylogs.reduce(function (s, f) {
@@ -1811,7 +1811,7 @@
     }).join('');
     el.querySelectorAll('.base-card').forEach(function (card) {
       card.addEventListener('click', function () {
-        var site = all.filter(function (x) { return x.id === Number(card.dataset.id); })[0];
+        var site = all.filter(function (x) { return x.id === card.dataset.id; })[0];
         if (site) openBaseDetail(site);
       });
     });
@@ -1910,7 +1910,7 @@
         list.innerHTML = shown.map(function (t) {
           var cs = stats[t.id] || { avg: 0, count: 0 };
           var meta = t.meta || {};
-          var liked = me && t.likeIds && t.likeIds.indexOf(me.id) >= 0;
+          var liked = me && t.likeIds && t.likeIds.indexOf(me.nickname) >= 0;
           var likeCount = (t.likeIds && t.likeIds.length) || 0;
           var pinned = pins.indexOf(t.id) >= 0;
           return '<div class="card">' +
@@ -1936,7 +1936,7 @@
         list.querySelectorAll('[data-act]').forEach(function (btn) {
           btn.addEventListener('click', function (e) {
             e.stopPropagation();
-            var act = btn.dataset.act, id = Number(btn.dataset.id);
+            var act = btn.dataset.act, id = btn.dataset.id;
             if (act === 'play') playFromCommunity(id);
             else if (act === 'comment') openComment(id);
             else if (act === 'like') toggleLikeTrack(id, btn);
@@ -1946,13 +1946,13 @@
         list.querySelectorAll('[data-profile]').forEach(function (a) {
           a.addEventListener('click', function (e) {
             e.stopPropagation();
-            openProfile(Number(a.dataset.profile));
+            openProfile(a.dataset.profile);
           });
         });
         list.querySelectorAll('.card').forEach(function (card) {
           card.addEventListener('click', function () {
             var btn = card.querySelector('[data-act="play"]');
-            if (btn) playFromCommunity(Number(btn.dataset.id));
+            if (btn) playFromCommunity(btn.dataset.id);
           });
         });
       });
@@ -1994,7 +1994,7 @@
         var admin = isAdminUser(me);
         list.innerHTML = mine.map(function (c) {
           var pinned = pins.indexOf(c.id) >= 0;
-          var canDel = admin || (me && c.authorId === me.id);
+          var canDel = admin || (me && (c.authorId === me.id || c.authorId === me.nickname));
           return '<div class="base-comment">' +
             '<span class="bc-author">' + (pinned ? '📌 ' : '') + esc(c.author || '伞友') + '</span>' +
             '<span class="bc-time">' + new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + '</span>' +
@@ -2007,7 +2007,7 @@
         }).join('');
         list.querySelectorAll('[data-op]').forEach(function (btn) {
           btn.addEventListener('click', function () {
-            var op = btn.dataset.op, id = Number(btn.dataset.id);
+            var op = btn.dataset.op, id = btn.dataset.id;
             if (op === 'pin') togglePinSiteItem('pinComments', id);
             else if (op === 'del') {
               if (!confirm('删除这条留言？')) return;
@@ -2032,7 +2032,7 @@
         rating: 0,
         text: text,
         author: u.nickname,
-        authorId: u.id,
+        authorId: u.nickname,
         createdAt: Date.now()
       });
     }).then(function (id) {
@@ -2116,6 +2116,7 @@
       }).then(function () {
         return window.SanjiStore.add('sites', Object.assign({}, payload, {
           authorName: author,
+          authorId: author,
           createdAt: Date.now()
         }));
       });
@@ -2287,7 +2288,7 @@
         name: name || '危险/禁飞区域',
         note: note || '',
         polygon: drawState.pts,
-        authorId: u.id,
+        authorId: u.nickname,
         createdAt: Date.now()
       });
     }).then(function (id) {
@@ -2310,7 +2311,7 @@
       return window.SanjiStore.getAll('sites').then(function (list) {
         var s = list.filter(function (x) { return x.id === id; })[0];
         if (!s) return null;
-        if (s.authorId !== u.id) { showDiag('只能删除自己绘制的点位/区域', true); return null; }
+        if (s.authorId !== u.id && s.authorId !== u.nickname) { showDiag('只能删除自己绘制的点位/区域', true); return null; }
         if (!confirm('删除该点位/区域？')) return null;
         return window.SanjiStore.del('sites', id).then(function () { return true; });
       });
@@ -2342,7 +2343,7 @@
     window.SanjiStore.me().then(function (u) {
       if (!u) return;
       window.SanjiStore.getAll('sites').then(function (list) {
-        var mine = list.filter(function (s) { return s.authorId === u.id; });
+        var mine = list.filter(function (s) { return s.authorId === u.id || s.authorId === u.nickname; });
         var takeoffs = mine.filter(function (s) { return s.type === 'takeoff'; });
         var landings = mine.filter(function (s) { return s.type === 'landing'; });
         var dangers = mine.filter(function (s) { return s.type === 'danger'; });
@@ -2386,7 +2387,7 @@
           b.addEventListener('click', function () { startPlace(b.dataset.add); });
         });
         body.querySelectorAll('[data-del-site]').forEach(function (b) {
-          b.addEventListener('click', function () { deleteSiteById(Number(b.dataset.delSite)); });
+          b.addEventListener('click', function () { deleteSiteById(b.dataset.delSite); });
         });
         var dragBtn = document.getElementById('btnDrag');
         if (dragBtn) {
@@ -2993,7 +2994,7 @@
         note: note,
         photo: community.uploadPhoto || null, // 飞行照片（压缩 dataURL）
         visibility: vis,
-        authorId: u.id,
+        authorId: u.nickname,
         authorName: u.nickname,
         points: community.uploadPoints,
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
@@ -3026,7 +3027,7 @@
         base: '',
         note: '',
         visibility: shared ? 'public' : 'private',
-        authorId: u ? u.id : 0,
+        authorId: u ? u.nickname : '本地',
         authorName: u ? u.nickname : '本地',
         points: pts,
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
@@ -3077,8 +3078,8 @@
       var tracks = r[0], stats = r[1], me = r[2];
       var shown = tracks.filter(function (t) {
         var vis = t.visibility || (t.shared ? 'public' : 'private');
-        if (community.view === 'mine') return me && t.authorId === me.id;
-        if (community.view === 'fav') return me && t.favIds && t.favIds.indexOf(me.id) >= 0;
+        if (community.view === 'mine') return me && (t.authorId === me.id || t.authorId === me.nickname);
+        if (community.view === 'fav') return me && t.favIds && t.favIds.indexOf(me.nickname) >= 0;
         if (vis !== 'public') return false;
         if (community.baseFilter && t.base !== community.baseFilter) return false;
         return true;
@@ -3096,8 +3097,8 @@
         var cs = stats[t.id] || { avg: 0, count: 0 };
         var meta = t.meta || {};
         var vis = t.visibility || (t.shared ? 'public' : 'private');
-        var liked = me && t.likeIds && t.likeIds.indexOf(me.id) >= 0;
-        var faved = me && t.favIds && t.favIds.indexOf(me.id) >= 0;
+        var liked = me && t.likeIds && t.likeIds.indexOf(me.nickname) >= 0;
+        var faved = me && t.favIds && t.favIds.indexOf(me.nickname) >= 0;
         var likeCount = (t.likeIds && t.likeIds.length) || 0;
         var favCount = (t.favIds && t.favIds.length) || 0;
         return '<div class="card">' +
@@ -3120,13 +3121,13 @@
           '<button class="fav-btn' + (faved ? ' on' : '') + '" data-act="fav" data-id="' + t.id + '">☆ ' + favCount + '</button>' +
           '<button class="mini-btn mini-primary" data-act="play" data-id="' + t.id + '">回放</button>' +
           '<button class="mini-btn" data-act="comment" data-id="' + t.id + '">评论</button>' +
-          (me && t.authorId === me.id ? '<button class="mini-btn mini-danger" data-act="del" data-id="' + t.id + '">删除</button>' : '') +
+          (me && (t.authorId === me.id || t.authorId === me.nickname) ? '<button class="mini-btn mini-danger" data-act="del" data-id="' + t.id + '">删除</button>' : '') +
           '</span></div></div>';
       }).join('');
       list.querySelectorAll('[data-act]').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
           e.stopPropagation();
-          var act = btn.dataset.act, id = Number(btn.dataset.id);
+          var act = btn.dataset.act, id = btn.dataset.id;
           if (act === 'play') playFromCommunity(id);
           else if (act === 'comment') openComment(id);
           else if (act === 'del') deleteTrack(id);
@@ -3137,13 +3138,13 @@
       list.querySelectorAll('[data-profile]').forEach(function (a) {
         a.addEventListener('click', function (e) {
           e.stopPropagation();
-          openProfile(Number(a.dataset.profile));
+          openProfile(a.dataset.profile);
         });
       });
       list.querySelectorAll('.card').forEach(function (card) {
         card.addEventListener('click', function () {
           var btn = card.querySelector('[data-act="play"]');
-          if (btn) playFromCommunity(Number(btn.dataset.id));
+          if (btn) playFromCommunity(btn.dataset.id);
         });
       });
     });
@@ -3153,7 +3154,7 @@
   function toggleLikeTrack(id, btn) {
     window.SanjiStore.me().then(function (u) {
       if (!u) { showDiag('登录后才能点赞', true); openAuth(); return null; }
-      return window.SanjiStore.toggleLike(id, u.id);
+      return window.SanjiStore.toggleLike(id, u.nickname);
     }).then(function (r) {
       if (r) {
         btn.classList.toggle('on', r.liked);
@@ -3166,7 +3167,7 @@
   function toggleFavTrack(id, btn) {
     window.SanjiStore.me().then(function (u) {
       if (!u) { showDiag('登录后才能收藏', true); openAuth(); return null; }
-      return window.SanjiStore.toggleFav(id, u.id);
+      return window.SanjiStore.toggleFav(id, u.nickname);
     }).then(function (r) {
       if (r) {
         btn.classList.toggle('on', r.faved);
@@ -3205,7 +3206,7 @@
       document.getElementById('profileModal').classList.add('show');
       document.getElementById('profileBody').querySelectorAll('[data-pid]').forEach(function (row) {
         row.addEventListener('click', function () {
-          playFromCommunity(Number(row.dataset.pid));
+          playFromCommunity(row.dataset.pid);
           document.getElementById('profileModal').classList.remove('show');
         });
       });
@@ -3227,7 +3228,7 @@
       if (!me) { showDiag('登录后才能删除', true); return null; }
       return window.SanjiStore.getAll('tracks').then(function (ts) {
         var t = ts.filter(function (x) { return x.id === id; })[0];
-        if (!t || t.authorId !== me.id) { showDiag('只能删除自己的轨迹', true); return null; }
+        if (!t || (t.authorId !== me.id && t.authorId !== me.nickname)) { showDiag('只能删除自己的轨迹', true); return null; }
         if (!confirm('删除这条轨迹（含其评论）？')) return null;
         return window.SanjiStore.del('tracks', id).then(function () {
           return window.SanjiStore.getByIndex('comments', 'trackId', id);
@@ -3273,7 +3274,7 @@
         rating: community.rating || 3,
         text: text,
         author: u.nickname,
-        authorId: u.id,
+        authorId: u.nickname,
         createdAt: Date.now()
       });
     }).then(function (id) {
