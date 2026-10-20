@@ -57,6 +57,7 @@
     follow: true,
     terrainReady: false,
     takeoffAlt: 0,
+    landingAlt: 0,   // 降落场高度（相对高度以此为基准，v3.10b14）
     stats: null,
     planeEntity: null,
     previewLine: null,   // 静态预览线（未播放时显示整条淡色线，避免"轨迹消失"）
@@ -850,6 +851,7 @@
     state.playMs = 0;
     state.playing = false;
     state.takeoffAlt = decimated[0].alt;
+    state.landingAlt = decimated[decimated.length - 1].alt;
 
     var s = core.stats.computeStats(decimated);
     var p0 = decimated[0], p1 = decimated[decimated.length - 1];
@@ -858,7 +860,7 @@
     state.meta = meta || null;
     state.states = s.states || [];
     // 飞行得分卡 + 热气流效率报告（v3.9 新增）
-    state.score = core.stats.computeScore(s, state.takeoffAlt);
+    state.score = core.stats.computeScore(s, state.landingAlt);
     state.thermalEff = core.stats.thermalEfficiency(s);
 
     // 坐标自检（起点明显不在中国大陆 → 提示格式问题）
@@ -883,7 +885,7 @@
       tw.style.display = notes.length ? 'block' : 'none';
     }
     // 飞行摘要卡：留空时长 / 最大相对高度 / 最佳滑翔比 / 飞行得分 / 热气流效率 / 风险段
-    var relMax = Math.max(0, s.maxAlt - state.takeoffAlt);
+    var relMax = Math.max(0, s.maxAlt - state.landingAlt);
     var bestGlide = bestGlideRatio(decimated);
     var eff = state.thermalEff;
     var dangerSegs = state.states.filter(function (x) { return x.severity >= 2; });
@@ -1530,7 +1532,7 @@
     var dist = core.geo.haversine(prev.lat, prev.lon, p.lat, p.lon);
     var hSpeed = dist / dt;               // m/s
     var vSpeed = (p.alt - prev.alt) / dt; // m/s 垂直速度（正=上升）
-    var relAlt = p.alt - state.takeoffAlt;
+    var relAlt = p.alt - state.landingAlt;   // 相对高度：以降落场高度为基准
 
     dom.hudAlt.textContent = Math.round(p.alt);
     dom.hudRel.textContent = Math.round(relAlt);
