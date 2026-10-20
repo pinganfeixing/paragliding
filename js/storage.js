@@ -17,11 +17,10 @@
   var DB_VERSION = 4;
   var SESSION_KEY = 'sanji_session';
 
-  // ================= 云共享层（CloudBase 免费环境） =================
-  // 社区数据（tracks 飞行记录 / sites 基地 / comments 留言）接入云数据库，
-  // 所有访问者共享同一份数据；账号、飞行日志、装备等个人数据仍只存本机。
-  // 云端不可用时自动降级为纯本地（离线照常使用）。
-  var CLOUD_ENV = 'sanji-h5-d6gx37faiab04a99b';
+  // ================= 云共享层（暂关闭：CloudBase 体验环境已销毁，等备案后接入自建服务器） =================
+  // 社区数据（tracks 飞行记录 / sites 基地 / comments 留言）后续接入服务器数据库实现全民共享；
+  // 当前 CLOUD_ENV 置空 = 纯本地模式（离线照常使用）。备案通过后替换为服务器 API 地址。
+  var CLOUD_ENV = '';
   var SHARED_STORES = { tracks: 1, sites: 1, comments: 1 };
   var _cloudReady = false;
   var _cloudBusy = false;
@@ -29,6 +28,7 @@
   var _cloudDb = null;
 
   function initCloud() {
+    if (!CLOUD_ENV) return Promise.resolve(false);
     if (_cloudReady) return Promise.resolve(true);
     if (_cloudBusy) return Promise.resolve(false);
     if (!window.cloudbase) return Promise.resolve(false);
