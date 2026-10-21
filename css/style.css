@@ -487,3 +487,34 @@ body:not(.playing).ui-tap-hidden .top-bar, body:not(.playing).ui-tap-hidden .hud
 @keyframes eggRise { to { transform: translateY(-125vh) rotate(10deg); } }
 @keyframes eggFall { to { transform: translateY(125vh) rotate(-18deg); opacity: .15; } }
 
+/* ============ 论坛化（v3.10b15）：帖子流 / 楼层 / 帖子详情 ============ */
+.forum-row { display: flex; align-items: center; background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px; cursor: pointer; gap: 10px; }
+.forum-row:hover { border-color: #38bdf8; }
+.forum-row + .forum-row { margin-top: 8px; }
+.fr-left { display: flex; align-items: center; }
+.fr-tag { display: inline-block; min-width: 24px; text-align: center; border-radius: 6px; padding: 3px 6px; font-size: 11px; font-weight: 800; color: #fff; }
+.fr-tag-flight { background: #38bdf8; }
+.fr-tag-takeoff { background: #4ade80; }
+.fr-tag-landing { background: #60a5fa; }
+.fr-main { flex: 1; min-width: 0; }
+.fr-title { font-size: 14px; font-weight: 700; color: #e2e8f0; line-height: 1.35; word-break: break-word; }
+.fr-title em { font-style: normal; color: #64748b; font-weight: 400; font-size: 12px; }
+.fr-private { display: inline-block; margin-left: 6px; font-size: 10px; color: #f59e0b; border: 1px solid rgba(245,158,11,.4); border-radius: 4px; padding: 1px 5px; vertical-align: 2px; }
+.fr-meta { font-size: 11px; color: #64748b; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.fr-meta .fr-base { color: #34d399; }
+.fr-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 76px; gap: 2px; }
+.fr-author { font-size: 11px; color: #38bdf8; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-date { font-size: 10px; color: #475569; }
+.fr-replies { font-size: 11px; color: #94a3b8; }
+.bc-floor { display: inline-block; background: rgba(56,189,248,.12); color: #38bdf8; border-radius: 4px; padding: 1px 6px; font-size: 10px; margin-right: 6px; font-weight: 700; }
+/* 帖子详情 1 楼 */
+.post-head { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+.post-title { font-size: 17px; font-weight: 800; color: #f1f5f9; line-height: 1.4; }
+.post-meta { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+.post-meta .author-link { color: #38bdf8; cursor: pointer; }
+.post-stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #cbd5e1; margin-top: 10px; background: #0b1220; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; }
+.post-photo { width: 100%; border-radius: 8px; margin-top: 10px; max-height: 300px; object-fit: cover; }
+.post-note { font-size: 12px; color: #cbd5e1; margin-top: 10px; line-height: 1.6; background: #0b1220; border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 0 8px 8px 0; }
+.post-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#postStarRow { margin-bottom: 8px; }
+
