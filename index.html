@@ -71,6 +71,7 @@
           <button class="btn" data-src="tianditu">天地图</button>
         </div>
         <button class="btn" id="btnSites">基地图层</button>
+        <button class="btn" id="btnThermal">热气流地图</button>
         <button class="btn" id="btnCustom">自定义</button>
         <button class="btn" id="btnFollow">相机: 跟随</button>
         <button class="btn" id="btnChart">高度曲线</button>
@@ -81,13 +82,14 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b15</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b16</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
       <div class="track-actions">
         <button class="mini-btn" id="btnSaveTrack">保存</button>
         <button class="mini-btn mini-primary" id="btnShareTrack">分享社区</button>
+        <button class="mini-btn mini-ghost" id="btnStory">飞行故事</button>
       </div>
     </div>
 
@@ -130,6 +132,7 @@
       <div class="pv-head-right">
         <span id="sessionInfo" class="session-info">—</span>
         <button class="pv-btn pv-ghost" id="btnSiteAdmin" style="display:none">基地管理</button>
+        <button class="pv-btn pv-ghost" id="btnRank">排行榜</button>
         <button class="pv-btn pv-ghost" id="btnAuth">登录/注册</button>
         <button class="pv-btn" id="btnUploadTrack">＋ 上传</button>
         <input id="fileUpload" type="file" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
@@ -239,6 +242,33 @@
       <div class="modal-actions">
         <button class="pv-btn pv-ghost" id="commentCancel">取消</button>
         <button class="pv-btn" id="commentOk">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 排行榜视图（赛季榜：得分 / 航程 / 留空） ========== -->
+  <div id="viewRank" class="page-view">
+    <div class="pv-head">
+      <div class="pv-head-left">
+        <button class="pv-btn pv-ghost" id="btnRankBack">‹ 返回</button>
+      </div>
+      <div class="pv-title" id="rankTitle">飞行排行榜</div>
+      <div class="pv-head-right">
+        <button class="pv-btn pv-ghost" id="btnRankMode">按得分</button>
+      </div>
+    </div>
+    <div id="rankBadges"></div>
+    <div id="rankList" class="rank-list"></div>
+  </div>
+
+  <!-- ========== 飞行故事弹窗（自动生成的分享卡片） ========== -->
+  <div id="storyModal" class="modal">
+    <div class="modal-box" style="max-width:420px">
+      <div class="modal-title">🪂 你的飞行故事</div>
+      <div id="storyBody" style="text-align:center"></div>
+      <div class="story-hint">长按图片保存，分享给伞友</div>
+      <div class="modal-actions">
+        <button class="pv-btn" id="storyOk">知道了</button>
       </div>
     </div>
   </div>
