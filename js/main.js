@@ -379,6 +379,26 @@
     });
     var sitesBtn = document.getElementById('btnSites');
     if (sitesBtn) sitesBtn.addEventListener('click', toggleSites);
+    // v3.11：热气流热力图
+    var thermalBtn = document.getElementById('btnThermal');
+    if (thermalBtn) thermalBtn.addEventListener('click', toggleThermal);
+    // 飞行故事（当前轨迹 → 自动生成分享卡片）
+    var storyBtn = document.getElementById('btnStory');
+    if (storyBtn) storyBtn.addEventListener('click', genFlightStory);
+    var storyOk = document.getElementById('storyOk');
+    if (storyOk) storyOk.addEventListener('click', closeStory);
+    var storyModal = document.getElementById('storyModal');
+    if (storyModal) storyModal.addEventListener('click', function (e) { if (e.target === storyModal) closeStory(); });
+    // 排行榜：入口 / 返回 / 切换榜单
+    var rankBtn = document.getElementById('btnRank');
+    if (rankBtn) rankBtn.addEventListener('click', function () { setView('rank'); });
+    var rankBack = document.getElementById('btnRankBack');
+    if (rankBack) rankBack.addEventListener('click', function () { setView('community'); });
+    var rankModeBtn = document.getElementById('btnRankMode');
+    if (rankModeBtn) rankModeBtn.addEventListener('click', function () {
+      rankMode = rankMode === 'score' ? 'dist' : rankMode === 'dist' ? 'dur' : 'score';
+      renderRank();
+    });
     // v3.9：着色模式切换 / 编队对比 / 装备管理 / 年度报告
     var colorBtn = document.getElementById('btnColor');
     if (colorBtn) colorBtn.addEventListener('click', cycleColor);
@@ -811,7 +831,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b15';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b16';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -1791,6 +1811,99 @@
     state.siteEntities.forEach(function (e) { e.show = state.sitesVisible; });
   }
 
+  // ============ 热气流热力图（聚合全部公开轨迹的热气流 → 网格聚类 → 3D 图层） ============
+  var thermalLayer = { on: false, entities: [] };
+  var _thermalCache = null;
+
+  // 取一条轨迹的热气流：优先用上传时保存的精简点，老轨迹现场重算（降采样后）
+  function getTrackThermals(t) {
+    if (t.thermals && t.thermals.length) return t.thermals;
+    try {
+      var pts = (t.points || []).slice();
+      if (!pts.length) return [];
+      var stats = core.stats.computeStats(core.stats.decimate(pts, 2000));
+      return stats.thermals || [];
+    } catch (e) { return []; }
+  }
+
+  // 聚合：0.02° 网格（约 2km），统计热气流命中数 / 总爬升 / 最强爬升
+  function buildThermalMap() {
+    if (_thermalCache) return Promise.resolve(_thermalCache);
+    return window.SanjiStore.getAll('tracks').then(function (ts) {
+      var map = {};
+      ts.forEach(function (t) {
+        var vis = t.visibility || (t.shared ? 'public' : 'private');
+        if (vis !== 'public') return;
+        getTrackThermals(t).forEach(function (h) {
+          if (h.lat == null || h.lon == null) return;
+          var glat = Math.round(h.lat * 50) / 50;
+          var glon = Math.round(h.lon * 50) / 50;
+          var key = glat + '_' + glon;
+          if (!map[key]) map[key] = { lat: glat, lon: glon, count: 0, gain: 0, climb: 0 };
+          map[key].count += 1;
+          map[key].gain += h.altGain || 0;
+          map[key].climb = Math.max(map[key].climb, h.avgClimb || 0);
+        });
+      });
+      var out = Object.keys(map).map(function (k) {
+        var c = map[k];
+        return { lat: c.lat, lon: c.lon, count: c.count, gain: c.gain, climb: c.climb };
+      });
+      out.sort(function (a, b) { return b.count - a.count; });
+      _thermalCache = out;
+      return out;
+    });
+  }
+
+  function clearThermalLayer() {
+    thermalLayer.entities.forEach(function (e) { try { viewer.entities.remove(e); } catch (err) {} });
+    thermalLayer.entities = [];
+  }
+
+  function renderThermalLayer(cells) {
+    clearThermalLayer();
+    if (!viewer || !window.Cesium) return;
+    var cesium = window.Cesium;
+    var maxCount = 1;
+    cells.forEach(function (c) { if (c.count > maxCount) maxCount = c.count; });
+    cells.forEach(function (c) {
+      var t = c.count / maxCount;
+      var color = t < 0.33 ? '#38bdf8' : t < 0.66 ? '#4ade80' : t < 0.9 ? '#facc15' : '#f87171';
+      var radius = 350 + t * 750;
+      var e = viewer.entities.add({
+        position: cesium.Cartesian3.fromDegrees(c.lon, c.lat, 0),
+        ellipse: {
+          semiMajorAxis: radius, semiMinorAxis: radius,
+          heightReference: cesium.HeightReference.CLAMP_TO_GROUND,
+          material: cesium.Color.fromCssColorString(color).withAlpha(0.32),
+          outline: false
+        }
+      });
+      thermalLayer.entities.push(e);
+    });
+  }
+
+  function toggleThermal() {
+    var btn = document.getElementById('btnThermal');
+    if (!btn) return;
+    if (!thermalLayer.on) {
+      thermalLayer.on = true;
+      btn.classList.add('btn-active');
+      btn.textContent = '热气流:计算中…';
+      buildThermalMap().then(function (cells) {
+        btn.textContent = '热气流地图(开)';
+        if (!thermalLayer.on) return;
+        renderThermalLayer(cells);
+        showDiag('热气流活跃区 ' + cells.length + ' 处 · 红=强 黄=中 蓝=弱', false);
+      });
+    } else {
+      thermalLayer.on = false;
+      btn.classList.remove('btn-active');
+      btn.textContent = '热气流地图';
+      clearThermalLayer();
+    }
+  }
+
   // ============ 附近基地：社区列表 + 上传（人人可上传，存本机 IndexedDB） ============
   function renderBaseList() {
     var el = document.getElementById('baseList');
@@ -2672,6 +2785,9 @@
       // 基地详情帖：内容已在 openBaseDetail 渲染，无需额外刷新
     } else if (v === 'post') {
       // 帖子详情：内容已在 openPost 渲染，无需额外刷新
+    } else if (v === 'rank') {
+      renderRank();
+      renderRankBadges();
     }
   }
 
@@ -3004,6 +3120,7 @@
         authorId: u.nickname,
         authorName: u.nickname,
         points: community.uploadPoints,
+        thermals: (s.thermals || []).map(function (h) { return { lat: h.lat, lon: h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
         createdAt: Date.now()
       });
@@ -3012,6 +3129,7 @@
         closeUploadModal();
         community.uploadPoints = null;
         community.uploadPhoto = null;
+        _thermalCache = null;
         refreshBases();
         refreshCommunity();
         showDiag('轨迹已发布 ✓', false);
@@ -3037,11 +3155,13 @@
         authorId: u ? u.nickname : '本地',
         authorName: u ? u.nickname : '本地',
         points: pts,
+        thermals: (s.thermals || []).map(function (h) { return { lat: h.lat, lon: h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
         createdAt: Date.now()
       });
     }).then(function (id) {
       if (id) {
+        _thermalCache = null;
         showDiag(shared ? '已公开分享到社区 ✓' : '已保存到我的轨迹 ✓', false);
         refreshCommunity();
       }
@@ -3333,6 +3453,287 @@
         loadPostComments();
         showDiag('点评已发布 ✓', false);
       }
+    });
+  }
+
+  // ============ 飞行排行榜（得分 / 航程 / 留空 三榜） ============
+  var rankMode = 'score';
+  var RANK_MODES = { score: ['按得分', 'score', 0], dist: ['按航程', 'distKm', 1], dur: ['按留空', 'dur', 2] };
+  // XContest 式得分：航程km×2 + 热气流×3 + 最大相对高度/100
+  function rankTrackScore(t) {
+    var meta = t.meta || {};
+    var pts = t.points || [];
+    var lastAlt = pts.length ? (pts[pts.length - 1].alt || 0) : 0;
+    var relMax = Math.max(0, (meta.maxAlt || 0) - lastAlt);
+    return Math.round(((meta.dist || 0) / 1000) * 2 + (meta.th || 0) * 3 + relMax / 100);
+  }
+
+  function renderRank() {
+    var list = document.getElementById('rankList');
+    var btnMode = document.getElementById('btnRankMode');
+    if (btnMode) btnMode.textContent = '按' + RANK_MODES[rankMode][0];
+    window.SanjiStore.getAll('tracks').then(function (ts) {
+      var rows = [];
+      ts.forEach(function (t) {
+        var vis = t.visibility || (t.shared ? 'public' : 'private');
+        if (vis !== 'public') return;
+        var meta = t.meta || {};
+        rows.push({
+          t: t,
+          score: rankTrackScore(t),
+          distKm: (meta.dist || 0) / 1000,
+          dur: meta.dur || 0
+        });
+      });
+      var field = RANK_MODES[rankMode][1];
+      rows.sort(function (a, b) { return b[field] - a[field]; });
+      rows = rows.slice(0, 50);
+      var medal = ['🥇', '🥈', '🥉'];
+      list.innerHTML = '<div class="rank-note">榜单来自全部公开轨迹，打开排行榜自动刷新 · 点轨迹看详情</div>' +
+        rows.map(function (r, i) {
+          return '<div class="rank-row" data-id="' + esc(r.t.id) + '">' +
+            '<div class="rank-no">' + (i < 3 ? '<span class="medal">' + medal[i] + '</span>' : '<span class="rank-num">' + (i + 1) + '</span>') + '</div>' +
+            '<div class="rank-main">' +
+            '<div class="rank-title">' + esc(r.t.title || '未命名轨迹') + '</div>' +
+            '<div class="rank-meta">' +
+            '<span class="author-link" data-profile="' + esc(r.t.authorId) + '">' + esc(r.t.authorName || '伞友') + '</span>' +
+            (r.t.base ? ' · ⛰ ' + esc(r.t.base) : '') +
+            ' · ' + (r.t.createdAt ? new Date(r.t.createdAt).toLocaleDateString('zh-CN') : '') +
+            '</div></div>' +
+            '<div class="rank-val">' +
+            '<div class="rank-score">' + (rankMode === 'score' ? r.score + ' 分' : rankMode === 'dist' ? r.distKm.toFixed(1) + ' km' : fmtDur(r.dur)) + '</div>' +
+            '<div class="rank-sub">' + (rankMode === 'score' ? r.distKm.toFixed(1) + 'km · ' + (r.t.meta && r.t.meta.th || 0) + ' 气流' : rankMode === 'dist' ? '得分 ' + r.score : '得分 ' + r.score) + '</div>' +
+            '</div></div>';
+        }).join('') ||
+        '<div class="empty-tip">还没有公开轨迹，上传第一条就能上榜</div>';
+      list.querySelectorAll('.rank-row').forEach(function (row) {
+        row.addEventListener('click', function () { openPost(row.dataset.id); });
+      });
+      list.querySelectorAll('[data-profile]').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+          e.stopPropagation();
+          openProfile(a.dataset.profile);
+        });
+      });
+    });
+  }
+
+  // ============ 成就徽章（从本地轨迹/记录动态计算，无需上传） ============
+  var BADGE_DEFS = [
+    { id: 'first', icon: '🪂', name: '首次飞行', desc: '记录了第一条轨迹' },
+    { id: 'solo50', icon: '🛫', name: '越野 50km', desc: '单次航程 ≥ 50 公里' },
+    { id: 'solo100', icon: '🚀', name: '越野 100km', desc: '单次航程 ≥ 100 公里' },
+    { id: 'climb1k', icon: '⛰️', name: '爬升千米', desc: '单次最大相对高度 ≥ 1000m' },
+    { id: 'therm10', icon: '🌀', name: '热气流猎手', desc: '单次盘到 10 个热气流' },
+    { id: 'hundred', icon: '⏱️', name: '百小时', desc: '累计留空 ≥ 100 小时' },
+    { id: 'km1000', icon: '🗺️', name: '千里飞手', desc: '累计航程 ≥ 1000 公里' },
+    { id: 'sunset', icon: '🌇', name: '落日飞侠', desc: '18 点后降落的飞行' },
+    { id: 'sunrise', icon: '🌅', name: '晨风起飞', desc: '8 点前起飞的飞行' }
+  ];
+
+  function computeBadges(tracks, flylogs) {
+    var got = {};
+    if (tracks.length) got.first = true;
+    var maxDist = 0, maxRel = 0, maxTh = 0, sumDur = 0, sumDist = 0;
+    var all = tracks.concat(flylogs || []);
+    all.forEach(function (t) {
+      var meta = t.meta || {};
+      var dist = meta.dist || 0, dur = meta.dur || 0;
+      var pts = t.points || [];
+      var lastAlt = pts.length ? (pts[pts.length - 1].alt || 0) : 0;
+      maxDist = Math.max(maxDist, dist);
+      maxRel = Math.max(maxRel, (meta.maxAlt || 0) - lastAlt);
+      maxTh = Math.max(maxTh, meta.th || 0);
+      sumDur += dur; sumDist += dist;
+      // 日出/日落徽章：按轨迹首/末点的时间戳（本地时）判断
+      if (pts.length) {
+        var h0 = new Date(pts[0].t || pts[0].time || 0).getHours();
+        var h1 = new Date(pts[pts.length - 1].t || pts[pts.length - 1].time || 0).getHours();
+        if (!isNaN(h0) && h0 < 8) got.sunrise = true;
+        if (!isNaN(h1) && h1 >= 18) got.sunset = true;
+      }
+    });
+    if (maxDist >= 50e3) got.solo50 = true;
+    if (maxDist >= 100e3) got.solo100 = true;
+    if (maxRel >= 1000) got.climb1k = true;
+    if (maxTh >= 10) got.therm10 = true;
+    if (sumDur >= 3600 * 100) got.hundred = true;
+    if (sumDist >= 1000e3) got.km1000 = true;
+    return BADGE_DEFS.map(function (b) {
+      return { def: b, unlocked: !!got[b.id] };
+    });
+  }
+
+  function badgeWallHtml(tracks, flylogs) {
+    var list = computeBadges(tracks, flylogs);
+    var n = list.filter(function (x) { return x.unlocked; }).length;
+    return '<div class="badge-wall"><div class="badge-head">成就徽章 <span>' + n + '/' + list.length + '</span></div>' +
+      '<div class="badge-grid">' + list.map(function (x) {
+        return '<div class="badge' + (x.unlocked ? '' : ' badge-locked') + '" title="' + esc(x.def.desc) + '">' +
+          '<div class="badge-icon">' + (x.unlocked ? x.def.icon : '🔒') + '</div>' +
+          '<div class="badge-name">' + x.def.name + '</div>' +
+          '<div class="badge-desc">' + x.def.desc + '</div></div>';
+      }).join('') + '</div></div>';
+  }
+
+  // ============ 飞行故事（自动生成的分享卡片） ============
+  function storyRoundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function genFlightStory() {
+    if (!state.curTrack || !state.stats) { showDiag('先导入一条 IGC 轨迹', false); return; }
+    var t = state.curTrack, s = state.stats;
+    var pts = (t.points || []).slice();
+    if (pts.length < 2) { showDiag('轨迹点太少，无法生成故事', false); return; }
+    // 起飞场名：解析 meta 里的 site；没有则按起飞点就近匹配已收录基地（约 2km）
+    var siteName = (state.meta && state.meta.site) || '';
+    if (!siteName && SITES.takeoffs && SITES.takeoffs.length) {
+      var p0 = pts[0];
+      var best = null, bestD = Infinity;
+      SITES.takeoffs.forEach(function (sb) {
+        if (sb.lon == null || sb.lat == null) return;
+        var d = (sb.lon - p0.lon) * (sb.lon - p0.lon) + (sb.lat - p0.lat) * (sb.lat - p0.lat);
+        if (d < bestD) { bestD = d; best = sb; }
+      });
+      if (best && bestD < 0.02) siteName = best.name;
+    }
+    var cw = 900, ch = 1200;
+    var canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    var ctx = canvas.getContext('2d');
+    var F = '"Microsoft YaHei", "PingFang SC", sans-serif';
+
+    // 背景：夜空渐变 + 光晕
+    var g = ctx.createLinearGradient(0, 0, 0, ch);
+    g.addColorStop(0, '#0b1220');
+    g.addColorStop(0.55, '#0e1a30');
+    g.addColorStop(1, '#0a2a33');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    var glow = ctx.createRadialGradient(cw / 2, 190, 30, cw / 2, 190, 380);
+    glow.addColorStop(0, 'rgba(56,189,248,0.14)');
+    glow.addColorStop(1, 'rgba(56,189,248,0)');
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, cw, 500);
+
+    // 品牌 + 标题 + 元信息
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 26px ' + F;
+    ctx.fillText('🪂 滑翔伞趣飞行', cw / 2, 62);
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = 'bold 46px ' + F;
+    ctx.fillText((t.title || '未命名轨迹').slice(0, 16), cw / 2, 128);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '22px ' + F;
+    var metaStr = (t.authorName ? '飞手 ' + t.authorName : '匿名伞友') +
+      (siteName ? ' · ' + siteName : '') +
+      (t.createdAt ? ' · ' + new Date(t.createdAt).toLocaleDateString('zh-CN') : '');
+    ctx.fillText(metaStr, cw / 2, 172);
+
+    // 迷你轨迹图
+    var lons = [], lats = [];
+    pts.forEach(function (p) { lons.push(p.lon); lats.push(p.lat); });
+    var minLon = Math.min.apply(null, lons), maxLon = Math.max.apply(null, lons);
+    var minLat = Math.min.apply(null, lats), maxLat = Math.max.apply(null, lats);
+    var spanLon = Math.max(maxLon - minLon, 0.004), spanLat = Math.max(maxLat - minLat, 0.003);
+    var pad = 70, mapW = cw - pad * 2, mapH = 320, mx0 = pad, my0 = 236;
+    function px(lon) { return mx0 + (lon - minLon) / spanLon * mapW; }
+    function py(lat) { return my0 + (maxLat - lat) / spanLat * mapH; }
+    ctx.fillStyle = 'rgba(2,8,20,0.55)';
+    storyRoundRect(ctx, mx0 - 12, my0 - 12, mapW + 24, mapH + 24, 18); ctx.fill();
+    ctx.strokeStyle = 'rgba(56,189,248,0.22)'; ctx.lineWidth = 1;
+    storyRoundRect(ctx, mx0 - 12, my0 - 12, mapW + 24, mapH + 24, 18); ctx.stroke();
+    // 轨迹线
+    ctx.beginPath();
+    pts.forEach(function (p, i) { var x = px(p.lon), y = py(p.lat); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.stroke();
+    // 起点绿 / 终点红
+    ctx.fillStyle = '#4ade80';
+    ctx.beginPath(); ctx.arc(px(pts[0].lon), py(pts[0].lat), 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f87171';
+    ctx.beginPath(); ctx.arc(px(pts[pts.length - 1].lon), py(pts[pts.length - 1].lat), 9, 0, Math.PI * 2); ctx.fill();
+    // 热气流黄圈
+    (s.thermals || []).forEach(function (h) {
+      ctx.fillStyle = 'rgba(250,204,21,0.45)';
+      ctx.beginPath(); ctx.arc(px(h.lon), py(h.lat), 15, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.fillStyle = '#64748b'; ctx.font = '18px ' + F;
+    ctx.fillText('● 绿=起飞  ● 红=降落  黄圈=热气流', cw / 2, my0 + mapH + 32);
+
+    // 数据 2×3 格
+    var items = [
+      ['留空', fmtDur(s.durationSec)],
+      ['航程', (s.totalDistance / 1000).toFixed(1) + ' km'],
+      ['最高', (s.maxAlt || 0) + ' m'],
+      ['热气流', (s.thermalCount || 0) + ' 个'],
+      ['最强爬升', (s.maxClimb || 0) + ' m/s'],
+      ['得分', ((state.score && state.score.score) || 0) + ' 分']
+    ];
+    var colN = 3, gap = 24, bw = (cw - 100 - gap * 2) / 3, bh = 118, gy = 660;
+    items.forEach(function (it, i) {
+      var r = i % colN, c = Math.floor(i / colN);
+      var x = 50 + r * (bw + gap), y = gy + c * (bh + 16);
+      ctx.fillStyle = 'rgba(15,23,42,0.88)';
+      storyRoundRect(ctx, x, y, bw, bh, 14); ctx.fill();
+      ctx.strokeStyle = 'rgba(56,189,248,0.18)'; ctx.lineWidth = 1;
+      storyRoundRect(ctx, x, y, bw, bh, 14); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '20px ' + F;
+      ctx.fillText(it[0], x + bw / 2, y + 34);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 30px ' + F;
+      ctx.fillText(it[1], x + bw / 2, y + 88);
+    });
+
+    // 故事文案（自动生成）
+    var lines = [];
+    lines.push('从「' + (siteName || '起飞场') + '」腾空，共飞 ' + (s.totalDistance / 1000).toFixed(1) + ' 公里，空中逗留 ' + fmtDur(s.durationSec) + '。');
+    if (s.thermalCount) lines.push('途中盘到 ' + s.thermalCount + ' 个热气流，把高度一路推到 ' + (s.maxAlt || 0) + ' 米。');
+    if (s.maxClimb) lines.push('最猛的一股上升有 ' + s.maxClimb + ' m/s，气流给足了面子。');
+    if (s.dangerCount) lines.push('途中遇到一次危险姿态，好在及时稳住，有惊无险。');
+    ctx.fillStyle = '#cbd5e1'; ctx.font = '22px ' + F;
+    var ty = gy + 2 * (bh + 16) + 46;
+    lines.forEach(function (ln) {
+      ctx.fillText(ln, cw / 2, ty);
+      ty += 38;
+    });
+
+    // 底部
+    ctx.fillStyle = '#475569'; ctx.font = '19px ' + F;
+    ctx.fillText('滑翔伞趣飞行 · 每次飞行都值得被记住', cw / 2, ch - 34);
+
+    var url = canvas.toDataURL('image/png');
+    document.getElementById('storyBody').innerHTML =
+      '<img src="' + url + '" alt="飞行故事" style="width:100%;border-radius:14px;display:block" />';
+    document.getElementById('storyModal').classList.add('show');
+  }
+
+  function closeStory() {
+    document.getElementById('storyModal').classList.remove('show');
+  }
+  function renderRankBadges() {
+    var box = document.getElementById('rankBadges');
+    if (!box) return;
+    window.SanjiStore.me().then(function (me) {
+      if (!me) {
+        box.innerHTML = '<div class="badge-wall"><div class="badge-head">成就徽章 <span>登录后解锁</span></div></div>';
+        return;
+      }
+      Promise.all([
+        window.SanjiStore.getAll('tracks'),
+        window.SanjiStore.getAll('flylogs')
+      ]).then(function (r) {
+        var ts = r[0] || [], fl = r[1] || [];
+        var mine = ts.filter(function (t) { return t.authorId === me.id || t.authorId === me.nickname; });
+        box.innerHTML = badgeWallHtml(mine, fl);
+      }).catch(function () {
+        box.innerHTML = '<div class="badge-wall"><div class="badge-head">成就徽章</div></div>';
+      });
     });
   }
 
