@@ -811,7 +811,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b14';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b15';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -1994,11 +1994,12 @@
       }
       window.SanjiStore.me().then(function (me) {
         var admin = isAdminUser(me);
-        list.innerHTML = mine.map(function (c) {
+        list.innerHTML = mine.map(function (c, i) {
           var pinned = pins.indexOf(c.id) >= 0;
           var canDel = admin || (me && (c.authorId === me.id || c.authorId === me.nickname));
           return '<div class="base-comment">' +
-            '<span class="bc-author">' + (pinned ? '📌 ' : '') + esc(c.author || '伞友') + '</span>' +
+            '<span class="bc-floor">' + (pinned ? '📌 置顶' : (i + 2) + ' 楼') + '</span>' +
+            '<span class="bc-author">' + esc(c.author || '伞友') + '</span>' +
             '<span class="bc-time">' + new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + '</span>' +
             '<div class="bc-text">' + esc(c.text || '（无内容）') + '</div>' +
             '<div class="bc-ops">' +
@@ -2669,6 +2670,8 @@
       refreshFlylogs();
     } else if (v === 'base') {
       // 基地详情帖：内容已在 openBaseDetail 渲染，无需额外刷新
+    } else if (v === 'post') {
+      // 帖子详情：内容已在 openPost 渲染，无需额外刷新
     }
   }
 
@@ -2689,6 +2692,8 @@
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       b.addEventListener('click', function () { setView(b.dataset.view); });
     });
+    // 帖子详情（论坛式 1 楼 + 楼层点评）
+    initPostReply();
     // 当前轨迹：保存（仅自己）/ 分享（公开，需登录）
     document.getElementById('btnSaveTrack').addEventListener('click', function () { saveCurrentTrack(false); });
     document.getElementById('btnShareTrack').addEventListener('click', function () { saveCurrentTrack(true); });
@@ -3043,112 +3048,291 @@
     });
   }
 
-  // ---- 基地筛选 chips（全部 / 我的 / 收藏 / 各基地） ----
+  // ---- 论坛版块（全部 / 飞行记录 / 基地 / 我的 / 收藏） ----
   function refreshBases() {
     var wrap = document.getElementById('baseChips');
-    window.SanjiStore.getBases().then(function (bases) {
-      var items = [{ k: 'all', label: '全部' }, { k: 'mine', label: '我的' }, { k: 'fav', label: '收藏' }];
-      bases.forEach(function (b) { items.push({ k: b, label: b }); });
-      wrap.innerHTML = items.map(function (it) {
-        var active = (it.k === 'mine' && community.view === 'mine') ||
-          (it.k === 'fav' && community.view === 'fav') ||
-          (it.k !== 'mine' && it.k !== 'fav' && community.view === 'all' && community.baseFilter === it.k);
-        return '<button class="chip' + (active ? ' chip-active' : '') + '" data-k="' + esc(it.k) + '">' + esc(it.label) + '</button>';
+    var items = [
+      { k: 'all', label: '全部' },
+      { k: 'tracks', label: '飞行记录' },
+      { k: 'sites', label: '基地' },
+      { k: 'mine', label: '我的' },
+      { k: 'fav', label: '收藏' }
+    ];
+    wrap.innerHTML = items.map(function (it) {
+      var active = community.view === it.k;
+      return '<button class="chip' + (active ? ' chip-active' : '') + '" data-k="' + it.k + '">' + it.label + '</button>';
+    }).join('');
+    wrap.querySelectorAll('[data-k]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        community.view = b.dataset.k;
+        refreshBases();
+        refreshCommunity();
+      });
+    });
+  }
+
+  // ---- 社区列表渲染（论坛式帖子流：飞行帖 + 基地帖，按版块过滤） ----
+  function refreshCommunity() {
+    var list = document.getElementById('communityList');
+    Promise.all([
+      window.SanjiStore.getAll('tracks'),
+      window.SanjiStore.getAll('sites'),
+      window.SanjiStore.getAll('comments'),
+      window.SanjiStore.me()
+    ]).then(function (r) {
+      var tracks = r[0], sites = r[1], cs = r[2], me = r[3];
+      var trackReplies = {}, siteReplies = {};
+      cs.forEach(function (c) {
+        if (c.targetType === 'site') siteReplies[c.targetId] = (siteReplies[c.targetId] || 0) + 1;
+        else if (c.trackId) trackReplies[c.trackId] = (trackReplies[c.trackId] || 0) + 1;
+      });
+      var rows = [];
+      var v = community.view, bf = community.baseFilter;
+      tracks.forEach(function (t) {
+        var vis = t.visibility || (t.shared ? 'public' : 'private');
+        if (v === 'mine' && !(me && (t.authorId === me.id || t.authorId === me.nickname))) return;
+        if (v === 'fav' && !(me && t.favIds && t.favIds.indexOf(me.nickname) >= 0)) return;
+        if (v === 'sites') return;
+        if ((v === 'all' || v === 'tracks') && vis !== 'public') return;
+        if (bf && t.base !== bf) return;
+        rows.push({ kind: 'track', t: t, replies: trackReplies[t.id] || 0, at: t.createdAt || 0 });
+      });
+      if (v === 'all' || v === 'sites') {
+        sites.forEach(function (s) {
+          if (s.type !== 'takeoff' && s.type !== 'landing') return;
+          if (bf && s.base !== bf) return;
+          rows.push({ kind: 'site', s: s, replies: siteReplies[s.id] || 0, at: s.createdAt || 0 });
+        });
+      }
+      rows.sort(function (a, b) { return b.at - a.at; });
+      if (!rows.length) {
+        list.innerHTML = '<div class="empty-tip">' +
+          (v === 'mine' ? '你还没有发过帖子，上传第一条 IGC' :
+            v === 'fav' ? '还没有收藏任何帖子' :
+            v === 'sites' ? '还没有基地，点「＋ 上传基地」添加第一个' :
+            '还没有公开帖子，上传第一条 IGC 分享给伞友') +
+          '</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function (row) {
+        if (row.kind === 'track') {
+          var t = row.t, meta = t.meta || {};
+          var vis = t.visibility || (t.shared ? 'public' : 'private');
+          return '<div class="forum-row" data-kind="track" data-id="' + esc(t.id) + '">' +
+            '<div class="fr-left"><span class="fr-tag fr-tag-flight">飞</span></div>' +
+            '<div class="fr-main">' +
+            '<div class="fr-title">' + esc(t.title || '未命名轨迹') +
+            (vis === 'private' ? '<span class="fr-private">仅自己</span>' : '') + '</div>' +
+            '<div class="fr-meta">' +
+            (t.base ? '<span class="fr-base">⛰ ' + esc(t.base) + '</span>' : '') +
+            '<span>' + fmtDur(meta.dur) + '</span>' +
+            '<span>' + ((meta.dist || 0) / 1000).toFixed(1) + ' km</span>' +
+            '<span>最高 ' + (meta.maxAlt || 0) + ' m</span>' +
+            '</div></div>' +
+            '<div class="fr-right">' +
+            '<div class="fr-author">' + esc(t.authorName || '伞友') + '</div>' +
+            '<div class="fr-date">' + (t.createdAt ? new Date(t.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
+            '<div class="fr-replies">回复 ' + row.replies + '</div>' +
+            '</div></div>';
+        }
+        var s = row.s;
+        var isTk = s.type === 'takeoff';
+        return '<div class="forum-row" data-kind="site" data-id="' + esc(s.id) + '">' +
+          '<div class="fr-left"><span class="fr-tag ' + (isTk ? 'fr-tag-takeoff' : 'fr-tag-landing') + '">' + (isTk ? '基' : '降') + '</span></div>' +
+          '<div class="fr-main">' +
+          '<div class="fr-title">' + esc(s.name) + (s.alt ? ' <em>' + s.alt + 'm</em>' : '') + '</div>' +
+          '<div class="fr-meta">' + esc(s.desc || '') + (s.authorName && s.authorName !== '内置' ? ' · 上传者 ' + esc(s.authorName) : '') + '</div>' +
+          '</div>' +
+          '<div class="fr-right">' +
+          '<div class="fr-author">' + (isTk ? '起飞场' : '降落场') + '</div>' +
+          '<div class="fr-date">' + (s.createdAt ? new Date(s.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
+          '<div class="fr-replies">留言 ' + row.replies + '</div>' +
+          '</div></div>';
       }).join('');
-      wrap.querySelectorAll('[data-k]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var k = b.dataset.k;
-          if (k === 'all') { community.view = 'all'; community.baseFilter = ''; }
-          else if (k === 'mine') { community.view = 'mine'; community.baseFilter = ''; }
-          else if (k === 'fav') { community.view = 'fav'; community.baseFilter = ''; }
-          else { community.view = 'all'; community.baseFilter = k; }
-          refreshBases();
-          refreshCommunity();
+      list.querySelectorAll('.forum-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var kind = row.dataset.kind, id = row.dataset.id;
+          if (kind === 'track') openPost(id);
+          else {
+            var site = sites.filter(function (x) { return x.id === id; })[0];
+            if (site) openBaseDetail(site);
+          }
         });
       });
     });
   }
 
-  // ---- 社区列表渲染（权限：公开可见；我的含私密；收藏视图；基地筛选） ----
-  function refreshCommunity() {
-    var list = document.getElementById('communityList');
-    Promise.all([
-      window.SanjiStore.getAll('tracks'),
-      window.SanjiStore.commentStats(),
-      window.SanjiStore.me()
-    ]).then(function (r) {
-      var tracks = r[0], stats = r[1], me = r[2];
-      var shown = tracks.filter(function (t) {
-        var vis = t.visibility || (t.shared ? 'public' : 'private');
-        if (community.view === 'mine') return me && (t.authorId === me.id || t.authorId === me.nickname);
-        if (community.view === 'fav') return me && t.favIds && t.favIds.indexOf(me.nickname) >= 0;
-        if (vis !== 'public') return false;
-        if (community.baseFilter && t.base !== community.baseFilter) return false;
-        return true;
-      });
-      if (!shown.length) {
-        list.innerHTML = '<div class="empty-tip">' +
-          (community.view === 'mine' ? '你还没有上传过轨迹' :
-            community.view === 'fav' ? '还没有收藏任何轨迹' :
-            '该基地还没有公开轨迹，上传第一条 IGC 分享给伞友') +
-          '</div>';
-        return;
-      }
-      shown.sort(function (a, b) { return b.createdAt - a.createdAt; });
-      list.innerHTML = shown.map(function (t) {
-        var cs = stats[t.id] || { avg: 0, count: 0 };
-        var meta = t.meta || {};
-        var vis = t.visibility || (t.shared ? 'public' : 'private');
+  // ============ 帖子详情（论坛式：1 楼楼主 + 楼层点评） ============
+  var postViewTrack = null;
+  var postRating = 0;
+  function openPost(trackId) {
+    window.SanjiStore.getAll('tracks').then(function (ts) {
+      var t = ts.filter(function (x) { return x.id === trackId; })[0];
+      if (!t) { showDiag('帖子不存在', true); return; }
+      postViewTrack = t;
+      document.getElementById('postDetailTitle').textContent = t.title || '飞行记录';
+      renderPostHead();
+      loadPostComments();
+      setView('post');
+    });
+  }
+
+  function renderPostHead() {
+    var t = postViewTrack;
+    var el = document.getElementById('postDetailHead');
+    if (!t) { el.innerHTML = ''; return; }
+    var meta = t.meta || {};
+    window.SanjiStore.commentStats().then(function (stats) {
+      var st = stats[t.id] || { avg: 0, count: 0 };
+      window.SanjiStore.me().then(function (me) {
         var liked = me && t.likeIds && t.likeIds.indexOf(me.nickname) >= 0;
         var faved = me && t.favIds && t.favIds.indexOf(me.nickname) >= 0;
         var likeCount = (t.likeIds && t.likeIds.length) || 0;
         var favCount = (t.favIds && t.favIds.length) || 0;
-        return '<div class="card">' +
-          '<div class="card-head"><span class="card-title">' + esc(t.title || '未命名轨迹') + '</span>' +
-          '<span class="card-badge">' + (vis === 'private' ? '🔒 仅自己' : (cs.count ? '★ ' + cs.avg + ' (' + cs.count + ')' : '新轨迹')) + '</span></div>' +
-          '<div class="card-meta">' +
-          (t.base ? '<span class="base-tag">⛰ ' + esc(t.base) + '</span>' : '') +
-          '<span>' + new Date(t.createdAt).toLocaleDateString('zh-CN') + '</span>' +
-          '<span>' + fmtDur(meta.dur) + '</span>' +
-          '<span>' + ((meta.dist || 0) / 1000).toFixed(1) + ' km</span>' +
+        var canDel = isAdminUser(me) || (me && (t.authorId === me.id || t.authorId === me.nickname));
+        el.innerHTML =
+          '<div class="post-head">' +
+          '<div class="post-title">' + esc(t.title || '未命名轨迹') + '</div>' +
+          '<div class="post-meta">' +
+          '楼主 <span class="author-link" data-profile="' + esc(t.authorId) + '">' + esc(t.authorName || '伞友') + '</span>' +
+          (t.base ? ' · ⛰ ' + esc(t.base) : '') +
+          (t.createdAt ? ' · ' + new Date(t.createdAt).toLocaleString('zh-CN') : '') +
+          '</div>' +
+          '<div class="post-stats">' +
+          '<span>留空 ' + fmtDur(meta.dur) + '</span>' +
+          '<span>航程 ' + ((meta.dist || 0) / 1000).toFixed(1) + ' km</span>' +
           '<span>最高 ' + (meta.maxAlt || 0) + ' m</span>' +
           '<span>热气流 ' + (meta.th || 0) + '</span>' +
-          '<span>by <span class="author-link" data-profile="' + t.authorId + '">' + esc(t.authorName || '伞友') + '</span></span></div>' +
-          (t.photo ? '<img class="card-photo" src="' + t.photo + '" alt="飞行照片" />' : '') +
-          (t.note ? '<div class="card-note">' + esc(t.note) + '</div>' : '') +
-          '<div class="card-foot">' +
-          '<span class="stars">' + starStr(cs.avg) + '</span>' +
-          '<span class="card-btns">' +
-          '<button class="like-btn' + (liked ? ' on' : '') + '" data-act="like" data-id="' + t.id + '">❤ ' + likeCount + '</button>' +
-          '<button class="fav-btn' + (faved ? ' on' : '') + '" data-act="fav" data-id="' + t.id + '">☆ ' + favCount + '</button>' +
-          '<button class="mini-btn mini-primary" data-act="play" data-id="' + t.id + '">回放</button>' +
-          '<button class="mini-btn" data-act="comment" data-id="' + t.id + '">评论</button>' +
-          (me && (t.authorId === me.id || t.authorId === me.nickname) ? '<button class="mini-btn mini-danger" data-act="del" data-id="' + t.id + '">删除</button>' : '') +
-          '</span></div></div>';
-      }).join('');
-      list.querySelectorAll('[data-act]').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          var act = btn.dataset.act, id = btn.dataset.id;
-          if (act === 'play') playFromCommunity(id);
-          else if (act === 'comment') openComment(id);
-          else if (act === 'del') deleteTrack(id);
-          else if (act === 'like') toggleLikeTrack(id, btn);
-          else if (act === 'fav') toggleFavTrack(id, btn);
+          (st.count ? '<span class="stars">' + starStr(st.avg) + ' (' + st.count + ')</span>' : '') +
+          '</div>' +
+          (t.photo ? '<img class="post-photo" src="' + t.photo + '" alt="飞行照片" />' : '') +
+          (t.note ? '<div class="post-note">' + esc(t.note) + '</div>' : '') +
+          '<div class="post-btns">' +
+          '<button class="mini-btn mini-primary" id="postPlay">▶ 3D 回放</button>' +
+          '<button class="like-btn' + (liked ? ' on' : '') + '" id="postLike">❤ ' + likeCount + '</button>' +
+          '<button class="fav-btn' + (faved ? ' on' : '') + '" id="postFav">☆ ' + favCount + '</button>' +
+          (canDel ? '<button class="mini-btn mini-danger" id="postDel">删除</button>' : '') +
+          '</div></div>';
+        document.getElementById('postPlay').addEventListener('click', function () { playFromCommunity(t.id); });
+        document.getElementById('postLike').addEventListener('click', function () {
+          toggleLikeTrack(t.id, document.getElementById('postLike'));
+        });
+        document.getElementById('postFav').addEventListener('click', function () {
+          toggleFavTrack(t.id, document.getElementById('postFav'));
+        });
+        if (canDel) {
+          document.getElementById('postDel').addEventListener('click', function () {
+            deleteTrack(t.id).then(function (ok) { if (ok) setView('community'); });
+          });
+        }
+        var pf = el.querySelector('[data-profile]');
+        if (pf) pf.addEventListener('click', function () { openProfile(pf.dataset.profile); });
+      });
+    });
+  }
+
+  // 楼层点评：comments 中 trackId=本帖子（管理员可置顶/删除任意点评，作者可删自己的）
+  function loadPostComments() {
+    var list = document.getElementById('postCommentList');
+    var t = postViewTrack;
+    if (!t) { list.innerHTML = ''; return; }
+    window.SanjiStore.getAll('comments').then(function (cs) {
+      var mine = cs.filter(function (c) { return c.trackId === t.id; });
+      var pins = t.pinComments || [];
+      mine.sort(function (a, b) {
+        var pa = pins.indexOf(a.id) >= 0 ? 1 : 0, pb = pins.indexOf(b.id) >= 0 ? 1 : 0;
+        if (pa !== pb) return pb - pa;
+        return (a.createdAt || 0) - (b.createdAt || 0);
+      });
+      document.getElementById('postCommentTitle').textContent = '点评 · ' + (mine.length ? mine.length + ' 楼' : '暂无');
+      if (!mine.length) {
+        list.innerHTML = '<div class="empty-tip">还没有点评，来抢沙发说说这条线路</div>';
+        return;
+      }
+      window.SanjiStore.me().then(function (me) {
+        var admin = isAdminUser(me);
+        list.innerHTML = mine.map(function (c, i) {
+          var pinned = pins.indexOf(c.id) >= 0;
+          var floor = i + 2;
+          var canDel = admin || (me && (c.authorId === me.id || c.authorId === me.nickname));
+          return '<div class="base-comment">' +
+            '<span class="bc-floor">' + (pinned ? '📌 置顶' : floor + ' 楼') + '</span>' +
+            '<span class="bc-author">' + esc(c.author || '伞友') + '</span>' +
+            '<span class="bc-time">' + new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + '</span>' +
+            (c.rating ? '<span class="stars">' + starStr(c.rating) + '</span>' : '') +
+            '<div class="bc-text">' + esc(c.text || '（无内容）') + '</div>' +
+            '<div class="bc-ops">' +
+            (admin ? '<button class="bc-op" data-op="pin" data-id="' + c.id + '">' + (pinned ? '取消置顶' : '置顶') + '</button>' : '') +
+            (canDel ? '<button class="bc-op bc-op-danger" data-op="del" data-id="' + c.id + '">删除</button>' : '') +
+            '</div></div>';
+        }).join('');
+        list.querySelectorAll('[data-op]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var op = btn.dataset.op, id = btn.dataset.id;
+            if (op === 'pin') togglePinPostItem(id);
+            else if (op === 'del') {
+              if (!confirm('删除这条点评？')) return;
+              window.SanjiStore.del('comments', id).then(function () { loadPostComments(); });
+            }
+          });
         });
       });
-      list.querySelectorAll('[data-profile]').forEach(function (a) {
-        a.addEventListener('click', function (e) {
-          e.stopPropagation();
-          openProfile(a.dataset.profile);
+    });
+  }
+
+  // 管理员置顶/取消置顶帖子点评（pinComments 存 id 数组于轨迹记录）
+  function togglePinPostItem(id) {
+    var t = postViewTrack;
+    if (!t) return;
+    window.SanjiStore.me().then(function (u) {
+      if (!isAdminUser(u)) { showDiag('只有管理员可以置顶', true); return null; }
+      var arr = t.pinComments || [];
+      var i = arr.indexOf(id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      t.pinComments = arr;
+      return window.SanjiStore.put('tracks', t).then(function () {
+        showDiag(i >= 0 ? '已取消置顶' : '已置顶 ✓', false);
+        loadPostComments();
+      });
+    });
+  }
+
+  // 帖子详情回复（星级 + 文字，内联提交）
+  function initPostReply() {
+    document.querySelectorAll('#postStarRow .star').forEach(function (x) {
+      x.addEventListener('click', function () {
+        postRating = Number(x.dataset.v);
+        document.querySelectorAll('#postStarRow .star').forEach(function (s) {
+          s.classList.toggle('on', Number(s.dataset.v) <= postRating);
         });
       });
-      list.querySelectorAll('.card').forEach(function (card) {
-        card.addEventListener('click', function () {
-          var btn = card.querySelector('[data-act="play"]');
-          if (btn) playFromCommunity(btn.dataset.id);
-        });
+    });
+    document.getElementById('postReplyOk').addEventListener('click', postReplySubmit);
+    document.getElementById('btnPostBack').addEventListener('click', function () { setView('community'); });
+  }
+  function postReplySubmit() {
+    var t = postViewTrack;
+    var text = document.getElementById('postReplyText').value.trim();
+    if (!t) return;
+    if (!postRating && !text) { showDiag('先点星级或写点评', false); return; }
+    window.SanjiStore.me().then(function (u) {
+      if (!u) { showDiag('登录后才能点评', true); openAuth(); return null; }
+      return window.SanjiStore.add('comments', {
+        trackId: t.id,
+        rating: postRating || 0,
+        text: text,
+        author: u.nickname,
+        authorId: u.nickname,
+        createdAt: Date.now()
       });
+    }).then(function (id) {
+      if (id) {
+        document.getElementById('postReplyText').value = '';
+        postRating = 0;
+        document.querySelectorAll('#postStarRow .star').forEach(function (x) { x.classList.remove('on'); });
+        loadPostComments();
+        showDiag('点评已发布 ✓', false);
+      }
     });
   }
 
