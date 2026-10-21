@@ -4,7 +4,7 @@
  * 运行时先网络、失败回退缓存（CDN 的 Cesium/ECharts 与卫星瓦片仍需联网）。
  * 版本号变更即清理旧缓存，避免更新后加载到过期外壳。
  */
-var CACHE_NAME = 'sanji-h5-v17';
+var CACHE_NAME = 'sanji-h5-v18';
 var APP_SHELL = [
   './',
   './index.html',
