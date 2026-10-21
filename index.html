@@ -81,7 +81,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b14</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.10b15</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -126,7 +126,7 @@
   <!-- ========== 社区视图 ========== -->
   <div id="viewCommunity" class="page-view">
     <div class="pv-head">
-      <div class="pv-title">飞手社区 <span class="pv-sub">上传分享 IGC 轨迹 · 同基地飞手互相学习</span></div>
+      <div class="pv-title">滑翔伞论坛 <span class="pv-sub">飞行记录 · 基地 · 点评，人人可发</span></div>
       <div class="pv-head-right">
         <span id="sessionInfo" class="session-info">—</span>
         <button class="pv-btn pv-ghost" id="btnSiteAdmin" style="display:none">基地管理</button>
@@ -172,6 +172,29 @@
     <div class="base-reply">
       <input id="baseReplyText" placeholder="登录后说点什么…（天气、风向、结伴）" maxlength="120" />
       <button class="pv-btn" id="baseReplyOk">发送</button>
+    </div>
+  </div>
+
+  <!-- ========== 帖子详情视图（论坛式：1 楼楼主 + N 楼点评） ========== -->
+  <div id="viewPost" class="page-view">
+    <div class="pv-head">
+      <div class="pv-head-left">
+        <button class="pv-btn pv-ghost" id="btnPostBack">‹ 返回</button>
+      </div>
+      <div class="pv-title" id="postDetailTitle">帖子详情</div>
+      <div class="pv-head-right"></div>
+    </div>
+    <div id="postDetailHead"></div>
+    <div class="base-sec-head">
+      <span class="base-sec-title" id="postCommentTitle">点评</span>
+    </div>
+    <div id="postCommentList" class="base-comment-list"></div>
+    <div class="base-reply">
+      <div class="star-row" id="postStarRow">
+        <span class="star" data-v="1">★</span><span class="star" data-v="2">★</span><span class="star" data-v="3">★</span><span class="star" data-v="4">★</span><span class="star" data-v="5">★</span>
+      </div>
+      <input id="postReplyText" placeholder="登录后点评：线路 / 热气流 / 着陆…" maxlength="120" />
+      <button class="pv-btn" id="postReplyOk">回复</button>
     </div>
   </div>
 
