@@ -820,7 +820,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b17';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b18';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -844,6 +844,7 @@
       return;
     }
     clearScene();
+    _thermalCache = null; // 新轨迹参与热气流热力图，旧聚合失效
     clearCompare(); // 加载新轨迹时清除对比轨迹
     // GPS 噪点过滤：剔除跳点/抖动异常（速度异常大且回跳的点）
     points = filterGpsNoise(points);
@@ -1708,7 +1709,7 @@
     });
   }
 
-  // ============ 热气流热力图（聚合全部公开轨迹的热气流 → 网格聚类 → 3D 图层） ============
+  // ============ 热气流热力图（聚合本机全部轨迹 + 当前加载轨迹的热气流 → 网格聚类 → 3D 图层） ============
   var thermalLayer = { on: false, entities: [] };
   var _thermalCache = null;
 
@@ -1723,25 +1724,32 @@
     } catch (e) { return []; }
   }
 
-  // 聚合：0.02° 网格（约 2km），统计热气流命中数 / 总爬升 / 最强爬升
+  // 聚合：0.01° 网格（约 1km），统计热气流命中数 / 总爬升 / 最强爬升
+  // 参与范围：本机保存/分享的全部轨迹 + 当前正在播放的轨迹（无需保存即可看到）
   function buildThermalMap() {
     if (_thermalCache) return Promise.resolve(_thermalCache);
     return window.SanjiStore.getAll('tracks').then(function (ts) {
       var map = {};
-      ts.forEach(function (t) {
-        var vis = t.visibility || (t.shared ? 'public' : 'private');
-        if (vis !== 'public') return;
-        getTrackThermals(t).forEach(function (h) {
-          if (h.lat == null || h.lon == null) return;
-          var glat = Math.round(h.lat * 50) / 50;
-          var glon = Math.round(h.lon * 50) / 50;
+      function addThermals(thList) {
+        thList.forEach(function (h) {
+          // findThermals 输出字段为 centerLat/centerLon；保存的精简点为 lat/lon，双兼容
+          var la = h.lat != null ? h.lat : h.centerLat;
+          var lo = h.lon != null ? h.lon : h.centerLon;
+          if (la == null || lo == null) return;
+          var glat = Math.round(la * 100) / 100;
+          var glon = Math.round(lo * 100) / 100;
           var key = glat + '_' + glon;
           if (!map[key]) map[key] = { lat: glat, lon: glon, count: 0, gain: 0, climb: 0 };
           map[key].count += 1;
           map[key].gain += h.altGain || 0;
           map[key].climb = Math.max(map[key].climb, h.avgClimb || 0);
         });
-      });
+      }
+      ts.forEach(function (t) { addThermals(getTrackThermals(t)); });
+      // 当前正在播放的轨迹也参与聚合（即使还没保存）
+      if (state.curTrack && state.stats && state.stats.thermals) {
+        addThermals(state.stats.thermals);
+      }
       var out = Object.keys(map).map(function (k) {
         var c = map[k];
         return { lat: c.lat, lon: c.lon, count: c.count, gain: c.gain, climb: c.climb };
@@ -1772,8 +1780,10 @@
         ellipse: {
           semiMajorAxis: radius, semiMinorAxis: radius,
           heightReference: cesium.HeightReference.CLAMP_TO_GROUND,
-          material: cesium.Color.fromCssColorString(color).withAlpha(0.32),
-          outline: false
+          material: cesium.Color.fromCssColorString(color).withAlpha(0.5),
+          outline: true,
+          outlineColor: cesium.Color.fromCssColorString(color).withAlpha(0.8),
+          outlineWidth: 2
         }
       });
       thermalLayer.entities.push(e);
@@ -1791,7 +1801,11 @@
         btn.textContent = '热气流地图(开)';
         if (!thermalLayer.on) return;
         renderThermalLayer(cells);
-        showDiag('热气流活跃区 ' + cells.length + ' 处 · 红=强 黄=中 蓝=弱', false);
+        if (!cells.length) {
+          showDiag('还没找到热气流数据：导入一条盘过气流的 IGC，热力圈就会出现在盘旋处', false);
+        } else {
+          showDiag('热气流活跃区 ' + cells.length + ' 处 · 红=强 黄=中 蓝=弱', false);
+        }
       });
     } else {
       thermalLayer.on = false;
@@ -3016,7 +3030,7 @@
         authorId: u.nickname,
         authorName: u.nickname,
         points: community.uploadPoints,
-        thermals: (s.thermals || []).map(function (h) { return { lat: h.lat, lon: h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
+        thermals: (s.thermals || []).map(function (h) { return { lat: h.centerLat != null ? h.centerLat : h.lat, lon: h.centerLon != null ? h.centerLon : h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
         createdAt: Date.now()
       });
@@ -3051,7 +3065,7 @@
         authorId: u ? u.nickname : '本地',
         authorName: u ? u.nickname : '本地',
         points: pts,
-        thermals: (s.thermals || []).map(function (h) { return { lat: h.lat, lon: h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
+        thermals: (s.thermals || []).map(function (h) { return { lat: h.centerLat != null ? h.centerLat : h.lat, lon: h.centerLon != null ? h.centerLon : h.lon, altGain: h.altGain || 0, avgClimb: h.avgClimb || 0, duration: h.duration || 0 }; }),
         meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
         createdAt: Date.now()
       });
