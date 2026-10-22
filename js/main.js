@@ -30,15 +30,6 @@
       name: 'ESRI 卫星', wgs: true,
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
     },
-    amap: {
-      name: '高德卫星', wgs: false,
-      url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=6&x={x}&y={y}&z={z}',
-      subdomains: ['1', '2', '3', '4']
-    },
-    opentopo: {
-      name: 'OpenTopoMap 等高线', wgs: true,
-      url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png'
-    },
     tianditu: {
       name: '天地图卫星', wgs: true, // CGCS2000 ≈ WGS84，无偏移
       url: 'https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=' + TIANDITU_KEY,
@@ -64,8 +55,8 @@
     trackEntities: [],
     markEntities: [],
     thermalEntities: [],
-    siteEntities: [],    // 基地图层（起飞场/降落场/危险禁飞多边形）
-    sitesVisible: false, // 基地图层默认关闭（由管理员数据驱动）
+    siteEntities: [],    // 基地图层（已移除，v3.11b17）
+    sitesVisible: false, // 基地图层（已移除，v3.11b17）
     danger: false,       // 当前是否处于禁飞危险区域
     chart: null,
     chartData: null,
@@ -377,8 +368,6 @@
     document.querySelectorAll('#sourceGroup .btn').forEach(function (b) {
       b.addEventListener('click', function () { switchSource(b.dataset.src); });
     });
-    var sitesBtn = document.getElementById('btnSites');
-    if (sitesBtn) sitesBtn.addEventListener('click', toggleSites);
     // v3.11：热气流热力图
     var thermalBtn = document.getElementById('btnThermal');
     if (thermalBtn) thermalBtn.addEventListener('click', toggleThermal);
@@ -831,7 +820,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b16';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b17';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -981,7 +970,6 @@
         renderPlane();
         renderThermals(state.stats);
         renderMarks();
-        renderSites();
         setupChart(state.disp);
         zoomToTrack(positions);
         updateSeekFill();
@@ -1720,97 +1708,6 @@
     });
   }
 
-  // 渲染基地图层实体（起飞场绿点 / 降落场蓝点 / 危险禁飞多边形红色半透明）
-  function renderSites() {
-    var cesium = window.Cesium;
-    // 起飞场
-    SITES.takeoffs.forEach(function (s) {
-      var e = viewer.entities.add({
-        position: ptPos({ lat: s.lat, lon: s.lon }, 0),
-        point: {
-          pixelSize: 10,
-          color: cesium.Color.fromCssColorString('#4ade80'),
-          outlineColor: cesium.Color.WHITE, outlineWidth: 1.5
-        },
-        label: {
-          text: '起飞场·' + s.name + (s.alt ? ' ' + s.alt + 'm' : ''), font: '11px sans-serif',
-          pixelOffset: new cesium.Cartesian2(0, -18),
-          fillColor: cesium.Color.fromCssColorString('#4ade80'), showBackground: true,
-          backgroundColor: cesium.Color.fromCssColorString('#0f172a').withAlpha(0.7),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-      // 拖拽/删除标记（管理员编辑模式用）
-      e._siteId = s.id; e._siteType = 'takeoff';
-      state.siteEntities.push(e);
-    });
-    // 降落场
-    SITES.landings.forEach(function (s) {
-      var e = viewer.entities.add({
-        position: ptPos({ lat: s.lat, lon: s.lon }, 0),
-        point: {
-          pixelSize: 10,
-          color: cesium.Color.fromCssColorString('#60a5fa'),
-          outlineColor: cesium.Color.WHITE, outlineWidth: 1.5
-        },
-        label: {
-          text: '降落场·' + s.name + (s.alt ? ' ' + s.alt + 'm' : ''), font: '11px sans-serif',
-          pixelOffset: new cesium.Cartesian2(0, -18),
-          fillColor: cesium.Color.fromCssColorString('#60a5fa'), showBackground: true,
-          backgroundColor: cesium.Color.fromCssColorString('#0f172a').withAlpha(0.7),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-      e._siteId = s.id; e._siteType = 'landing';
-      state.siteEntities.push(e);
-    });
-    // 危险 / 禁飞区域（管理员手绘多边形，半透明红 + 名称备注）
-    SITES.dangerZones.forEach(function (s) {
-      if (!s.polygon || s.polygon.length < 3) return;
-      var ces = window.Cesium;
-      var positions = s.polygon.map(function (p) {
-        return ces.Cartesian3.fromDegrees(p.lon, p.lat, 0);
-      });
-      var e = viewer.entities.add({
-        polygon: {
-          hierarchy: positions,
-          height: 0,
-          material: ces.Color.fromCssColorString('#ef4444').withAlpha(0.14),
-          outline: true,
-          outlineColor: ces.Color.fromCssColorString('#ef4444').withAlpha(0.8),
-          outlineWidth: 1.5
-        },
-        label: {
-          text: '⚠ ' + s.name + (s.note ? '\n' + s.note : ''),
-          font: '11px sans-serif',
-          pixelOffset: new ces.Cartesian2(0, 0),
-          fillColor: ces.Color.fromCssColorString('#fca5a5'),
-          showBackground: true,
-          backgroundColor: ces.Color.fromCssColorString('#0f172a').withAlpha(0.8),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-      e._siteId = s.id; e._siteType = 'danger';
-      state.siteEntities.push(e);
-    });
-    applySitesVisible();
-  }
-
-  // 基地图层开关（默认关闭）
-  function toggleSites() {
-    state.sitesVisible = !state.sitesVisible;
-    var btn = document.getElementById('btnSites');
-    if (btn) {
-      btn.classList.toggle('btn-active', state.sitesVisible);
-      btn.textContent = '基地图层' + (state.sitesVisible ? '' : '·关');
-    }
-    applySitesVisible();
-  }
-
-  function applySitesVisible() {
-    state.siteEntities.forEach(function (e) { e.show = state.sitesVisible; });
-  }
-
   // ============ 热气流热力图（聚合全部公开轨迹的热气流 → 网格聚类 → 3D 图层） ============
   var thermalLayer = { on: false, entities: [] };
   var _thermalCache = null;
@@ -2160,10 +2057,9 @@
     });
   }
 
-  // 地图查看基地：切到复盘视图 + 开启基地图层 + 相机飞到该基地
+  // 地图查看基地：切到复盘视图 + 相机飞到该基地
   function flyToBase(lat, lon, alt) {
     setView('replay');
-    if (!state.sitesVisible) toggleSites();
     var target = new window.Cesium.Cartesian3.fromDegrees(lon, lat, Math.max(alt || 0, 0) + 1500);
     viewer.camera.flyTo({
       destination: target,
