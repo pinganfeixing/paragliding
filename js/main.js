@@ -139,15 +139,7 @@
   var SITES = { takeoffs: [], landings: [], dangerZones: [] };
 
   // 预置附近滑翔基地（泰安周边真实场地，位置为大致坐标，可在"上传基地"中修正）
-  var PRESET_BASES = [
-    { type: 'takeoff', name: '泰山伞场', base: '泰山', lat: 36.166, lon: 117.128, alt: 850, desc: '泰山南麓经典起飞场，西南风佳，视野开阔', seeded: true },
-    { type: 'takeoff', name: '徂徕山滑翔基地', base: '徂徕山', lat: 36.086, lon: 117.200, alt: 700, desc: '泰山东南，山势平缓适合新手训练，热气流活跃', seeded: true },
-    { type: 'takeoff', name: '新泰莲花山基地', base: '莲花山', lat: 35.940, lon: 117.550, alt: 780, desc: '新泰莲花山北麓，春秋两季气流稳定', seeded: true },
-    { type: 'takeoff', name: '济南雪野湖基地', base: '雪野湖', lat: 36.305, lon: 117.502, alt: 420, desc: '雪野湖西岸山地，湖面开阔，降落场友好', seeded: true },
-    { type: 'takeoff', name: '济南南部山区基地', base: '济南南山', lat: 36.430, lon: 117.060, alt: 600, desc: '济南仲宫一带，多山脊线路，新手进阶皆宜', seeded: true },
-    { type: 'landing', name: '泰山南麓降落场', base: '泰山', lat: 36.150, lon: 117.100, alt: 150, desc: '泰山伞场配套降落场，草地平整，风向多变注意观察', seeded: true },
-    { type: 'landing', name: '徂徕山东坡降落场', base: '徂徕山', lat: 36.070, lon: 117.230, alt: 180, desc: '徂徕山南坡田坝降落区，注意电线', seeded: true }
-  ];
+  var PRESET_BASES = [];
 
   var dom = {};
   var viewer = null;
@@ -820,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b19';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b20';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -1660,7 +1652,9 @@
   function refreshSitesFromDB(cb) {
     window.SanjiStore.getAll('sites').then(function (list) {
       var VALID_TYPES = { takeoff: 1, landing: 1, danger: 1 };
-      var valid = (list || []).filter(function (s) { return s && VALID_TYPES[s.type]; });
+      var valid = (list || []).filter(function (s) { return s && VALID_TYPES[s.type] && s.authorName !== '内置'; });
+      // 自动清理旧的内置预置基地（用户要求清空，自己手动加）
+      (list || []).forEach(function (s) { if (s && s.authorName === '内置' && s.id != null) window.SanjiStore.del('sites', s.id).catch(function () {}); });
       var bad = (list || []).filter(function (s) { return !s || !VALID_TYPES[s.type]; });
       // 清理损坏记录（例如早期上传失败写入的字段缺失数据），避免影响列表与地图
       bad.forEach(function (b) { if (b && b.id != null) window.SanjiStore.del('sites', b.id).catch(function () {}); });
