@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b20';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b21';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -3102,9 +3102,10 @@
       window.SanjiStore.getAll('tracks'),
       window.SanjiStore.getAll('sites'),
       window.SanjiStore.getAll('comments'),
-      window.SanjiStore.me()
+      window.SanjiStore.me(),
+      (window.SanjiApi ? window.SanjiApi.getPosts(1, 'all').catch(function(){ return {posts:[]}; }) : Promise.resolve({posts:[]}))
     ]).then(function (r) {
-      var tracks = r[0], sites = r[1], cs = r[2], me = r[3];
+      var tracks = r[0], sites = r[1], cs = r[2], me = r[3], serverPosts = (r[4] && r[4].posts) || [];
       var trackReplies = {}, siteReplies = {};
       cs.forEach(function (c) {
         if (c.targetType === 'site') siteReplies[c.targetId] = (siteReplies[c.targetId] || 0) + 1;
@@ -3128,6 +3129,10 @@
           rows.push({ kind: 'site', s: s, replies: siteReplies[s.id] || 0, at: s.createdAt || 0 });
         });
       }
+      // 合并服务器帖子（全民共享）
+      serverPosts.forEach(function (p) {
+        rows.push({ kind: 'serverPost', p: p, replies: p.commentCount || 0, at: p.createdAt || 0 });
+      });
       rows.sort(function (a, b) { return b.at - a.at; });
       if (!rows.length) {
         list.innerHTML = '<div class="empty-tip">' +
@@ -3156,6 +3161,21 @@
             '<div class="fr-right">' +
             '<div class="fr-author">' + esc(t.authorName || '伞友') + '</div>' +
             '<div class="fr-date">' + (t.createdAt ? new Date(t.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
+            '<div class="fr-replies">回复 ' + row.replies + '</div>' +
+            '</div></div>';
+        }
+        // 服务器帖子（全民共享）
+        if (row.kind === 'serverPost') {
+          var sp = row.p;
+          return '<div class="forum-row" data-kind="serverPost" data-id="' + esc(sp.id) + '">' +
+            '<div class="fr-left"><span class="fr-tag fr-tag-flight">帖</span></div>' +
+            '<div class="fr-main">' +
+            '<div class="fr-title">' + esc(sp.title) + '</div>' +
+            '<div class="fr-meta">' + esc((sp.content || '').substring(0, 60)) + '</div>' +
+            '</div>' +
+            '<div class="fr-right">' +
+            '<div class="fr-author">' + esc(sp.author || '伞友') + '</div>' +
+            '<div class="fr-date">' + (sp.createdAt ? new Date(sp.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
             '<div class="fr-replies">回复 ' + row.replies + '</div>' +
             '</div></div>';
         }
