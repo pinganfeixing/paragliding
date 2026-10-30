@@ -79,7 +79,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b24</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b25</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -157,6 +157,11 @@
       <div class="modal-title">发帖子</div>
       <label>标题<input type="text" id="npTitle" placeholder="帖子标题" /></label>
       <label>内容<textarea id="npContent" rows="4" placeholder="写点什么..."></textarea></label>
+      <div style="margin:8px 0">
+        <button class="pv-btn pv-ghost" id="npAddImage">📷 添加图片</button>
+        <input type="file" id="npImageFile" accept="image/*" style="display:none" />
+        <div id="npImagePreview" style="margin-top:8px"></div>
+      </div>
       <div class="modal-btns">
         <button class="pv-btn pv-ghost" id="npCancel">取消</button>
         <button class="pv-btn" id="npOk">发布</button>
