@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b25';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b26';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -2685,6 +2685,24 @@
       renderBaseList();
     } else if (v === 'flylog') {
       refreshFlylogs();
+    } else if (v === 'blog') {
+      // 博客页面，从服务器拉文章
+      fetch('/api/posts?type=blog&page=1').then(function(r){return r.json();}).then(function(data){
+        var list = document.getElementById('blogList');
+        if (!data.posts || !data.posts.length) {
+          list.innerHTML = '<div class="empty-tip">还没有文章，第一篇飞行日记等你写</div>';
+          return;
+        }
+        list.innerHTML = data.posts.map(function(p){
+          return '<div class="forum-row" data-id="' + p.id + '">' +
+            '<div class="fr-left"><span class="fr-tag">文</span></div>' +
+            '<div class="fr-main"><div class="fr-title">' + esc(p.title) + '</div>' +
+            '<div class="fr-meta">' + esc((p.content||'').substring(0,80)) + '</div></div>' +
+            '<div class="fr-right"><div class="fr-author">' + esc(p.author||'') + '</div>' +
+            '<div class="fr-date">' + new Date(p.createdAt).toLocaleDateString('zh-CN') + '</div></div>' +
+            '</div>';
+        }).join('');
+      }).catch(function(){});
     } else if (v === 'base') {
       // 基地详情帖：内容已在 openBaseDetail 渲染，无需额外刷新
     } else if (v === 'post') {
