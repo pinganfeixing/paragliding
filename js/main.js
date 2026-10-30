@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b23';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b24';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -3222,20 +3222,7 @@
           var kind = row.dataset.kind, id = row.dataset.id;
           if (kind === 'track') openPost(id);
           else if (kind === 'serverPost') {
-            window.SanjiApi.getPost(id).then(function (data) {
-              var p = data.post;
-              var html = '<div style="padding:16px">' +
-                '<h3 style="margin:0 0 8px">' + esc(p.title) + '</h3>' +
-                '<div style="color:#94a3b8;font-size:12px;margin-bottom:12px">' + esc(p.author) + ' · ' + new Date(p.createdAt).toLocaleString('zh-CN') + '</div>' +
-                '<div style="white-space:pre-wrap;line-height:1.6">' + esc(p.content) + '</div>' +
-                '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #334155">' +
-                '<b>评论 (' + (data.comments || []).length + ')</b><br><br>';
-              (data.comments || []).forEach(function (c) {
-                html += '<div style="margin-bottom:8px"><b>' + esc(c.author) + '：</b>' + esc(c.content) + '</div>';
-              });
-              html += '</div></div>';
-              showDiag(html, false);
-            });
+            openServerPost(id);
           }
           else {
             var site = sites.filter(function (x) { return x.id === id; })[0];
@@ -3257,6 +3244,26 @@
       document.getElementById('postDetailTitle').textContent = t.title || '飞行记录';
       renderPostHead();
       loadPostComments();
+      setView('post');
+    });
+  }
+
+  // 服务器帖子详情
+  var serverPostId = null;
+  function openServerPost(id) {
+    serverPostId = id;
+    window.SanjiApi.getPost(id).then(function (data) {
+      var p = data.post;
+      document.getElementById('postDetailTitle').textContent = p.title;
+      document.getElementById('postDetailHead').innerHTML =
+        '<div style="padding:16px">' +
+        '<div style="color:#94a3b8;font-size:12px;margin-bottom:12px">' + esc(p.author) + ' · ' + new Date(p.createdAt).toLocaleString('zh-CN') + '</div>' +
+        '<div style="white-space:pre-wrap;line-height:1.7">' + esc(p.content) + '</div>' +
+        '</div>';
+      document.getElementById('postCommentTitle').textContent = '评论 (' + (data.comments || []).length + ')';
+      document.getElementById('postCommentList').innerHTML = (data.comments || []).map(function (c) {
+        return '<div class="base-comment"><b>' + esc(c.author) + '</b><div>' + esc(c.content) + '</div><div style="color:#94a3b8;font-size:11px">' + new Date(c.createdAt).toLocaleString('zh-CN') + '</div></div>';
+      }).join('');
       setView('post');
     });
   }
