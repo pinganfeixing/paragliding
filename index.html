@@ -79,7 +79,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b21</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b22</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -131,6 +131,7 @@
         <button class="pv-btn pv-ghost" id="btnSiteAdmin" style="display:none">基地管理</button>
         <button class="pv-btn pv-ghost" id="btnRank">排行榜</button>
         <button class="pv-btn pv-ghost" id="btnAuth">登录/注册</button>
+        <button class="pv-btn pv-ghost" id="btnNewPost">✏️ 发帖子</button>
         <button class="pv-btn" id="btnUploadTrack">＋ 上传</button>
         <input id="fileUpload" type="file" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
       </div>
@@ -148,6 +149,19 @@
     </div>
     <div class="chip-row" id="baseChips"></div>
     <div id="communityList" class="card-list"></div>
+  </div>
+
+  <!-- 发帖子弹框 -->
+  <div id="newPostModal" class="modal-mask" style="display:none">
+    <div class="modal-box">
+      <div class="modal-title">发帖子</div>
+      <label>标题<input type="text" id="npTitle" placeholder="帖子标题" /></label>
+      <label>内容<textarea id="npContent" rows="4" placeholder="写点什么..."></textarea></label>
+      <div class="modal-btns">
+        <button class="pv-btn pv-ghost" id="npCancel">取消</button>
+        <button class="pv-btn" id="npOk">发布</button>
+      </div>
+    </div>
   </div>
 
   <!-- ========== 基地详情视图（贴吧式基地帖：信息 / 高德导航 / 该基地飞行记录 / 基地留言） ========== -->
