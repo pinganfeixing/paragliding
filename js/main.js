@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b24';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b25';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -2738,8 +2738,29 @@
     });
     document.getElementById('authOk').addEventListener('click', submitAuth);
     // 发帖子（服务器帖子）
+    var npImageUrl = '';
     document.getElementById('btnNewPost').addEventListener('click', function () {
+      npImageUrl = '';
+      document.getElementById('npImagePreview').innerHTML = '';
       document.getElementById('newPostModal').style.display = 'flex';
+    });
+    document.getElementById('npAddImage').addEventListener('click', function () {
+      document.getElementById('npImageFile').click();
+    });
+    document.getElementById('npImageFile').addEventListener('change', function (e) {
+      var f = e.target.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append('image', f);
+      showDiag('上传图片中...', false);
+      fetch('/api/upload/image', { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          npImageUrl = data.url;
+          document.getElementById('npImagePreview').innerHTML = '<img src="' + npImageUrl + '" style="max-width:100%;border-radius:8px" />';
+          showDiag('图片上传成功 ✓', false);
+        })
+        .catch(function (e) { showDiag('图片上传失败：' + e.message, true); });
     });
     document.getElementById('npCancel').addEventListener('click', function () {
       document.getElementById('newPostModal').style.display = 'none';
@@ -2747,6 +2768,7 @@
     document.getElementById('npOk').addEventListener('click', function () {
       var title = document.getElementById('npTitle').value.trim();
       var content = document.getElementById('npContent').value.trim();
+      if (npImageUrl) content += '\n\n![图片](' + npImageUrl + ')';
       if (!title) { showDiag('请填标题', true); return; }
       window.SanjiStore.me().then(function (u) {
         var author = u ? u.nickname : '匿名飞手';
@@ -2755,6 +2777,8 @@
             document.getElementById('newPostModal').style.display = 'none';
             document.getElementById('npTitle').value = '';
             document.getElementById('npContent').value = '';
+            document.getElementById('npImagePreview').innerHTML = '';
+            npImageUrl = '';
             showDiag('发帖成功 ✓', false);
             refreshCommunity();
           })
@@ -3258,7 +3282,7 @@
       document.getElementById('postDetailHead').innerHTML =
         '<div style="padding:16px">' +
         '<div style="color:#94a3b8;font-size:12px;margin-bottom:12px">' + esc(p.author) + ' · ' + new Date(p.createdAt).toLocaleString('zh-CN') + '</div>' +
-        '<div style="white-space:pre-wrap;line-height:1.7">' + esc(p.content) + '</div>' +
+        '<div style="white-space:pre-wrap;line-height:1.7">' + esc(p.content).replace(/!\[图片\]\((\/uploads\/[^)]+)\)/g, '<br><img src="$1" style="max-width:100%;border-radius:8px;margin:8px 0" /><br>') + '</div>' +
         '</div>';
       document.getElementById('postCommentTitle').textContent = '评论 (' + (data.comments || []).length + ')';
       document.getElementById('postCommentList').innerHTML = (data.comments || []).map(function (c) {
