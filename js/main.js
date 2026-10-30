@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b21';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b22';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -2737,6 +2737,30 @@
       renderAuthMode();
     });
     document.getElementById('authOk').addEventListener('click', submitAuth);
+    // 发帖子（服务器帖子）
+    document.getElementById('btnNewPost').addEventListener('click', function () {
+      document.getElementById('newPostModal').style.display = 'flex';
+    });
+    document.getElementById('npCancel').addEventListener('click', function () {
+      document.getElementById('newPostModal').style.display = 'none';
+    });
+    document.getElementById('npOk').addEventListener('click', function () {
+      var title = document.getElementById('npTitle').value.trim();
+      var content = document.getElementById('npContent').value.trim();
+      if (!title) { showDiag('请填标题', true); return; }
+      window.SanjiStore.me().then(function (u) {
+        var author = u ? u.nickname : '匿名飞手';
+        window.SanjiApi.createPost({ title: title, content: content, author: author, type: 'post' })
+          .then(function () {
+            document.getElementById('newPostModal').style.display = 'none';
+            document.getElementById('npTitle').value = '';
+            document.getElementById('npContent').value = '';
+            showDiag('发帖成功 ✓', false);
+            refreshCommunity();
+          })
+          .catch(function (e) { showDiag('发帖失败：' + e.message, true); });
+      });
+    });
     // 上传：登录 → 选文件 → 解析 → 填写发布信息
     document.getElementById('btnUploadTrack').addEventListener('click', function () {
       window.SanjiStore.me().then(function (u) {
