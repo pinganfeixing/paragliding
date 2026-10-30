@@ -53,6 +53,7 @@
   <div class="tab-bar">
     <button class="tab-btn tab-active" data-view="replay">复盘</button>
     <button class="tab-btn" data-view="community">社区</button>
+    <button class="tab-btn" data-view="blog">博客</button>
     <button class="tab-btn" data-view="flylog">飞行记录</button>
   </div>
 
@@ -79,7 +80,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b25</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b26</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -214,6 +215,16 @@
       </div>
       <input id="postReplyText" placeholder="登录后点评：线路 / 热气流 / 着陆…" maxlength="120" />
       <button class="pv-btn" id="postReplyOk">回复</button>
+    </div>
+  </div>
+
+  <!-- ========== 博客视图 ========== -->
+  <div id="viewBlog" class="page-view">
+    <div class="pv-head">
+      <div class="pv-title">飞行博客 <span class="pv-sub">心得 · 感悟 · 故事</span></div>
+    </div>
+    <div id="blogList" class="card-list">
+      <div class="empty-tip">还没有文章，第一篇飞行日记等你写</div>
     </div>
   </div>
 
