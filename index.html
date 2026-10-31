@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>滑翔伞轨迹复盘工具 · 3D 飞行回放</title>
+  <title>滑翔伞轨迹复盘工具 · 基地与飞行记录</title>
   <!-- PWA：可安装 / 离线缓存外壳 -->
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0b1120" />
@@ -52,6 +52,7 @@
   <!-- ========== 顶部 Tab ========== -->
   <div class="tab-bar">
     <button class="tab-btn tab-active" data-view="replay">复盘</button>
+    <button class="tab-btn" data-view="community">基地</button>
     <button class="tab-btn" data-view="flylog">飞行记录</button>
   </div>
 
@@ -124,7 +125,7 @@
   <!-- ========== 社区视图 ========== -->
   <div id="viewCommunity" class="page-view">
     <div class="pv-head">
-      <div class="pv-title">滑翔伞论坛 <span class="pv-sub">飞行记录 · 基地 · 点评，人人可发</span></div>
+      <div class="pv-title">滑翔基地 <span class="pv-sub">自建起飞场/降落场 · 分享飞行记录</span></div>
       <div class="pv-head-right">
         <span id="sessionInfo" class="session-info">—</span>
         <button class="pv-btn pv-ghost" id="btnSiteAdmin" style="display:none">基地管理</button>
