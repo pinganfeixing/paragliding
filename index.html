@@ -62,7 +62,7 @@
       <div class="brand">🪂 轨迹复盘 <span class="brand-sub">3D 飞行分析工具</span></div>
       <div class="tool-group">
         <label class="btn" id="btnImport" style="position:relative;overflow:hidden">导入
-          <input id="fileInput" type="file" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" />
+          <input id="fileInput" type="file" accept=".igc,.IGC,.kml,.KML,.gpx,.GPX,.kmz,.txt" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" />
         </label>
         <div class="btn-group" id="sourceGroup">
           <button class="btn btn-active" data-src="esri">卫星</button>
@@ -79,7 +79,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b27</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.12</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -132,7 +132,7 @@
         <button class="pv-btn pv-ghost" id="btnRank">排行榜</button>
         <button class="pv-btn pv-ghost" id="btnAuth">登录/注册</button>
         <button class="pv-btn" id="btnUploadTrack">＋ 上传轨迹</button>
-        <input id="fileUpload" type="file" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
+        <input id="fileUpload" type="file" accept=".igc,.IGC,.kml,.KML,.gpx,.GPX,.kmz,.txt" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
       </div>
     </div>
     <div class="pv-section">
@@ -339,8 +339,8 @@
         <label>飞行笔记<textarea id="upNote" rows="2" placeholder="热气流位置 / 航线选择 / 降落心得…"></textarea></label>
         <label>可见性
           <select id="upVisibility">
-            <option value="public">公开分享（所有人可见）</option>
-            <option value="private">仅自己可见</option>
+            <option value="public">分享给大家（上传到服务器，所有人都能看）</option>
+            <option value="private">仅自己可见（只存在这台手机上）</option>
           </select>
         </label>
       </div>
