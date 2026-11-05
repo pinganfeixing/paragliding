@@ -812,7 +812,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.11b26';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.12';
       dom.trackCoord.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -2722,6 +2722,8 @@
     authMode: 'login',
     uploadPoints: null,
     uploadName: '',
+    uploadText: '',           // 原始 IGC/GPX/KML 文本（上传到服务器共享时用）
+    uploadFileName: '',       // 原始文件名（含扩展名）
     uploadPhoto: null,        // 压缩后的飞行照片 dataURL
     uploadBasePrefill: ''     // 从基地详情发起上传时预填的基地名
   };
@@ -2820,6 +2822,8 @@
           var t = core.parseTrack(reader.result, f.name);
           community.uploadPoints = t.points;
           community.uploadName = f.name.replace(/\.[^.]+$/, '');
+          community.uploadText = String(reader.result || '');
+          community.uploadFileName = f.name;
           if (t.warnings && t.warnings.length) showDiag('解析提示：' + t.warnings.join('；'), false);
           openUploadModal(community.uploadBasePrefill || '');
           community.uploadBasePrefill = '';
@@ -3072,15 +3076,102 @@
     document.getElementById('uploadModal').classList.remove('show');
   }
 
+  // ---- 由轨迹点生成 IGC 文本（分享到服务器时用，格式与 utils-igc.js 解析器对齐） ----
+  function igcPad(n, w) {
+    var s = String(Math.abs(Math.round(n)));
+    while (s.length < w) s = '0' + s;
+    return s;
+  }
+  function igcLat(v) {
+    var hemi = v >= 0 ? 'N' : 'S';
+    var a = Math.abs(v);
+    var deg = Math.floor(a);
+    var min = (a - deg) * 60;
+    var mi = Math.floor(min);
+    var th = Math.round((min - mi) * 1000);
+    if (th >= 1000) { th -= 1000; mi += 1; }
+    if (mi >= 60) { mi -= 60; deg += 1; }
+    return igcPad(deg, 2) + igcPad(mi, 2) + igcPad(th, 3) + hemi;
+  }
+  function igcLon(v) {
+    var hemi = v >= 0 ? 'E' : 'W';
+    var a = Math.abs(v);
+    var deg = Math.floor(a);
+    var min = (a - deg) * 60;
+    var mi = Math.floor(min);
+    var th = Math.round((min - mi) * 1000);
+    if (th >= 1000) { th -= 1000; mi += 1; }
+    if (mi >= 60) { mi -= 60; deg += 1; }
+    return igcPad(deg, 3) + igcPad(mi, 2) + igcPad(th, 3) + hemi;
+  }
+  function buildIgcFromPoints(points, title, base) {
+    if (!points || points.length < 2) return '';
+    var t0 = points[0].t ? new Date(points[0].t) : new Date();
+    var dte = igcPad(t0.getDate(), 2) + igcPad(t0.getMonth() + 1, 2) + igcPad(t0.getFullYear() % 100, 2);
+    var lines = [
+      'AXXXIGC',
+      'HFDTE' + dte,
+      'HFPLTPILOT:' + (title || '伞友').replace(/[^\u4e00-\u9fa5A-Za-z0-9 _-]/g, ''),
+      base ? ('HFSITE:' + base) : 'HFSITE:'
+    ];
+    points.forEach(function (p) {
+      var d = p.t ? new Date(p.t) : t0;
+      var hhmmss = igcPad(d.getHours(), 2) + igcPad(d.getMinutes(), 2) + igcPad(d.getSeconds(), 2);
+      var alt = Math.max(0, Math.min(99999, Math.round(p.alt || 0)));
+      lines.push('B' + hhmmss + igcLat(p.lat) + igcLon(p.lon) + 'A' + igcPad(alt, 5) + igcPad(alt, 5));
+    });
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  // ---- 上传到服务器（大家都能看到；失败只提示，不回滚本地保存） ----
+  function uploadRemoteTrack(text, title, base, fileName) {
+    if (!window.SanjiApi || !text) return;
+    var name = fileName || (((title || 'flight') + '.igc').replace(/[\\/:*?"<>|]/g, '_'));
+    var file = null;
+    try {
+      file = new File([text], name, { type: 'text/plain' });
+    } catch (e) {
+      try { file = new Blob([text], { type: 'text/plain' }); } catch (e2) { file = null; }
+    }
+    if (!file) { showDiag('当前浏览器不支持分享上传', true); return; }
+    window.SanjiStore.me().then(function (u) {
+      return window.SanjiApi.uploadTrack(file, (u && u.nickname) || '匿名飞手', title || name.replace(/\.[^.]+$/, ''), base || '');
+    }).then(function (r) {
+      if (r && r.error) { showDiag('上传到「大家」失败：' + r.error, true); return; }
+      showDiag('已上传到「大家」✓', false);
+    }).catch(function (e) {
+      showDiag('上传到「大家」失败：' + e.message, true);
+    });
+  }
+
+  // ---- 打开服务器上的共享飞行记录（下载 → 解析 → 3D 回放） ----
+  function openRemoteTrack(rec) {
+    if (!rec) return;
+    showDiag('正在加载「' + (rec.title || '伞友的飞行') + '」…', false);
+    fetch('/api/tracks/' + rec.id + '/download')
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (text) {
+        var parsed = core.parseTrack(text, rec.originalName || ('track-' + rec.id + '.igc'));
+        if (!parsed || !parsed.points || parsed.points.length < 2) throw new Error('文件里没有可用的飞行点');
+        loadTrack(parsed.points, rec.title || rec.originalName || '伞友的飞行', parsed.meta || {});
+        setView('replay');
+      })
+      .catch(function (e) { showDiag('加载失败：' + e.message, true); });
+  }
+
   function publishTrack() {
     if (!community.uploadPoints || community.uploadPoints.length < 2) { showDiag('没有可发布的轨迹数据', true); return; }
     var title = document.getElementById('upTitle').value.trim() || community.uploadName + ' 的飞行';
     var base = document.getElementById('upBase').value.trim();
     var note = document.getElementById('upNote').value.trim();
     var vis = document.getElementById('upVisibility').value;
+    // 原始文本 / 文件名 / 轨迹点在发布流程结束后会被清空，先留存一份
+    var text = community.uploadText || '';
+    var fname = community.uploadFileName || '';
+    var pts = community.uploadPoints;
     window.SanjiStore.me().then(function (u) {
       if (!u) { showDiag('登录状态已失效，请重新登录', true); closeUploadModal(); openAuth(); return null; }
-      var s = core.stats.computeStats(core.stats.decimate(community.uploadPoints, 2000));
+      var s = core.stats.computeStats(core.stats.decimate(pts, 2000));
       return window.SanjiStore.add('tracks', {
         title: title,
         base: base,
@@ -3099,26 +3190,36 @@
         closeUploadModal();
         community.uploadPoints = null;
         community.uploadPhoto = null;
+        community.uploadText = '';
+        community.uploadFileName = '';
         _thermalCache = null;
         refreshBases();
         refreshCommunity();
-        showDiag('轨迹已发布 ✓', false);
+        if (vis === 'public') {
+          // 公开 → 同时上传到服务器，其他伞友的「大家」里能看到并打开 3D 回放
+          var shared = text || buildIgcFromPoints(pts || [], title, base);
+          uploadRemoteTrack(shared, title, base, fname);
+          showDiag('已发布并分享给大家 ✓', false);
+        } else {
+          showDiag('已保存到我的飞行记录（仅自己可见）✓', false);
+        }
       }
     });
   }
 
-  // 当前轨迹保存（仅自己可见）/ 分享（公开，需登录）
+  // 当前轨迹保存（仅自己可见）/ 分享（公开，需登录；公开时同步传到服务器）
   function saveCurrentTrack(shared) {
     if (!state.curTrack || !state.curTrack.points || state.curTrack.points.length < 2) {
       showDiag('当前没有可保存的轨迹', false);
       return;
     }
+    var title = state.curTrack.name || '未命名飞行';
+    var pts = state.curTrack.points;
     window.SanjiStore.me().then(function (u) {
       if (shared && !u) { showDiag('分享到社区需要先登录', true); openAuth(); return null; }
-      var pts = state.curTrack.points;
       var s = core.stats.computeStats(core.stats.decimate(pts, 2000));
       return window.SanjiStore.add('tracks', {
-        title: state.curTrack.name,
+        title: title,
         base: '',
         note: '',
         visibility: shared ? 'public' : 'private',
@@ -3132,7 +3233,13 @@
     }).then(function (id) {
       if (id) {
         _thermalCache = null;
-        showDiag(shared ? '已公开分享到社区 ✓' : '已保存到我的轨迹 ✓', false);
+        if (shared) {
+          var igc = buildIgcFromPoints(pts, title, '');
+          uploadRemoteTrack(igc, title, '', (title || 'flight') + '.igc');
+          showDiag('已保存并分享给大家 ✓', false);
+        } else {
+          showDiag('已保存到我的飞行记录（仅自己可见）✓', false);
+        }
         refreshCommunity();
       }
     });
@@ -3143,6 +3250,7 @@
     var wrap = document.getElementById('baseChips');
     var items = [
       { k: 'all', label: '全部' },
+      { k: 'cloud', label: '大家' },
       { k: 'tracks', label: '飞行记录' },
       { k: 'sites', label: '基地' },
       { k: 'mine', label: '我的' },
@@ -3169,9 +3277,11 @@
       window.SanjiStore.getAll('sites'),
       window.SanjiStore.getAll('comments'),
       window.SanjiStore.me(),
-      (window.SanjiApi ? window.SanjiApi.getPosts(1, 'all').catch(function(){ return {posts:[]}; }) : Promise.resolve({posts:[]}))
+      (window.SanjiApi ? window.SanjiApi.getPosts(1, 'all').catch(function(){ return {posts:[]}; }) : Promise.resolve({posts:[]})),
+      (community.view === 'cloud' && window.SanjiApi ? window.SanjiApi.getTracks().catch(function(){ return {tracks:[]}; }) : Promise.resolve({tracks:[]}))
     ]).then(function (r) {
       var tracks = r[0], sites = r[1], cs = r[2], me = r[3], serverPosts = (r[4] && r[4].posts) || [];
+      var serverTracks = (r[5] && r[5].tracks) || [];
       var trackReplies = {}, siteReplies = {};
       cs.forEach(function (c) {
         if (c.targetType === 'site') siteReplies[c.targetId] = (siteReplies[c.targetId] || 0) + 1;
@@ -3184,6 +3294,7 @@
         if (v === 'mine' && !(me && (t.authorId === me.id || t.authorId === me.nickname))) return;
         if (v === 'fav' && !(me && t.favIds && t.favIds.indexOf(me.nickname) >= 0)) return;
         if (v === 'sites') return;
+        if (v === 'cloud') return;
         if ((v === 'all' || v === 'tracks') && vis !== 'public') return;
         if (bf && t.base !== bf) return;
         rows.push({ kind: 'track', t: t, replies: trackReplies[t.id] || 0, at: t.createdAt || 0 });
@@ -3196,13 +3307,22 @@
         });
       }
       // 合并服务器帖子（全民共享）
-      serverPosts.forEach(function (p) {
-        rows.push({ kind: 'serverPost', p: p, replies: p.commentCount || 0, at: p.createdAt || 0 });
-      });
+      if (v !== 'cloud') {
+        serverPosts.forEach(function (p) {
+          rows.push({ kind: 'serverPost', p: p, replies: p.commentCount || 0, at: p.createdAt || 0 });
+        });
+      }
+      // 「大家」：服务器上所有飞手共享的飞行记录
+      if (v === 'cloud') {
+        serverTracks.forEach(function (st) {
+          rows.push({ kind: 'serverTrack', t: st, replies: 0, at: st.createdAt || 0 });
+        });
+      }
       rows.sort(function (a, b) { return b.at - a.at; });
       if (!rows.length) {
         list.innerHTML = '<div class="empty-tip">' +
           (v === 'mine' ? '你还没有发过帖子，上传第一条 IGC' :
+            v === 'cloud' ? '还没有人分享飞行记录。上传后选「公开」就能出现在这里' :
             v === 'fav' ? '还没有收藏任何帖子' :
             v === 'sites' ? '还没有基地，点「＋ 上传基地」添加第一个' :
             '还没有公开帖子，上传第一条 IGC 分享给伞友') +
@@ -3228,6 +3348,23 @@
             '<div class="fr-author">' + esc(t.authorName || '伞友') + '</div>' +
             '<div class="fr-date">' + (t.createdAt ? new Date(t.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
             '<div class="fr-replies">回复 ' + row.replies + '</div>' +
+            '</div></div>';
+        }
+        // 「大家」：服务器共享的飞行记录
+        if (row.kind === 'serverTrack') {
+          var st = row.t;
+          return '<div class="forum-row" data-kind="serverTrack" data-id="' + esc(st.id) + '">' +
+            '<div class="fr-left"><span class="fr-tag fr-tag-flight">共</span></div>' +
+            '<div class="fr-main">' +
+            '<div class="fr-title">' + esc(st.title || st.originalName || '伞友的飞行') + '</div>' +
+            '<div class="fr-meta">' +
+            (st.base ? '<span class="fr-base">⛰ ' + esc(st.base) + '</span>' : '') +
+            '<span>' + esc(st.originalName || '') + '</span>' +
+            '<span>点开看 3D 回放</span>' +
+            '</div></div>' +
+            '<div class="fr-right">' +
+            '<div class="fr-author">' + esc(st.author || '伞友') + '</div>' +
+            '<div class="fr-date">' + (st.createdAt ? new Date(st.createdAt).toLocaleDateString('zh-CN') : '') + '</div>' +
             '</div></div>';
         }
         // 服务器帖子（全民共享）
@@ -3263,6 +3400,10 @@
         row.addEventListener('click', function () {
           var kind = row.dataset.kind, id = row.dataset.id;
           if (kind === 'track') openPost(id);
+          else if (kind === 'serverTrack') {
+            var rec = serverTracks.filter(function (x) { return String(x.id) === String(id); })[0];
+            openRemoteTrack(rec);
+          }
           else if (kind === 'serverPost') {
             openServerPost(id);
           }
