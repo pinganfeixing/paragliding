@@ -1,7 +1,7 @@
 {
   "name": "滑翔伞趣飞行 · 3D 滑翔伞轨迹复盘",
   "short_name": "滑翔伞趣飞行",
-  "description": "滑翔伞 IGC 轨迹 3D 回放 / 复盘 / 飞手社区",
+  "description": "滑翔伞 IGC 轨迹 3D 回放 / 复盘 / 飞行记录分享（工具类）",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
