@@ -4166,10 +4166,62 @@
     if (state.chart) state.chart.clear();
   }
 
+  // ============ 接收系统「分享」进来的轨迹（XCSoar / XC Track → 本 App）============
+  // App 端 ShareActivity 把收到的 IGC 放在手机本机 127.0.0.1 的临时服务上，这里取回来自动回放
+  var SHARE_PORTS = [47823, 47824, 47825];
+  var _shareBusy = false;
+
+  function receiveSharedTrack(depth) {
+    if (_shareBusy) return;
+    _shareBusy = true;
+    depth = depth || 0;
+    var ports = SHARE_PORTS.slice();
+
+    function next() {
+      if (!ports.length) {
+        _shareBusy = false;
+        if (depth < 5) setTimeout(function () { receiveSharedTrack(depth + 1); }, 700);
+        return;
+      }
+      var port = ports.shift();
+      fetch('http://127.0.0.1:' + port + '/pending', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (info) {
+          if (!info || !info.name) { next(); return; }
+          return fetch('http://127.0.0.1:' + port + '/track', { cache: 'no-store' })
+            .then(function (r) { return r.text(); })
+            .then(function (text) {
+              try {
+                var t = core.parseTrack(text, info.name);
+                var nm = info.name.replace(/\.[^.]+$/, '');
+                loadTrack(t.points, nm + ' 的飞行（来自分享）', t.meta);
+                showDiag('已从 XC 接收轨迹：' + info.name, false);
+              } catch (err) {
+                showDiag('分享的轨迹解析失败：' + err.message, true);
+              }
+              _shareBusy = false;
+            });
+        })
+        .catch(function () { next(); });
+    }
+    next();
+  }
+
+  function bootShareReceiver() {
+    setTimeout(function () { receiveSharedTrack(0); }, 700);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') {
+        _shareBusy = false;
+        setTimeout(function () { receiveSharedTrack(0); }, 300);
+      }
+    });
+  }
+
   // ============ 启动 ============
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () { init(); bootShareReceiver(); });
   } else {
     init();
+    bootShareReceiver();
   }
 })();
