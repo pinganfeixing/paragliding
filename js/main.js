@@ -843,8 +843,8 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.12';
-      dom.trackCoord.textContent = '';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.22';
+      var coord0 = document.getElementById('trackCoord'); if (coord0) coord0.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
       dom.follow.textContent = '相机: 自由';
@@ -1207,7 +1207,8 @@
     state._lastTailAt = now;
 
     // 回到起点/未播放时：显示静态预览线（整条淡色），隐藏尾迹窗口
-    if (state.playMs <= 100) {
+    // 只要在播放中就一律进窗口分支，避免 playMs 还停在起点时预览线挂着整条航线
+    if (state.playMs <= 100 && !state.playing) {
       if (state.previewLine) state.previewLine.show = true;
       state.mainPool.forEach(function (s) { s.show = false; });
       state.tailLayers.forEach(function (l) { l.show = false; });
