@@ -1508,30 +1508,175 @@
     dom.seek.style.setProperty('--p', (f * 100).toFixed(2) + '%');
   }
 
+  // ===== 风险段详情：指标全部由该段的轨迹点现算，不做预估 =====
+  // 注意：seg.startT/endT 是 IGC 的绝对时间戳（毫秒），不是相对播放位置；
+  // 进度条/图表都用相对时间，所以统一用 index 换算（state.times 从 0 起）。
+  function segSpan(seg) {
+    var times = state.times || [];
+    if (!times.length) return { a: 0, b: 0, startT: 0, endT: 0 };
+    var a = Math.max(0, seg.startIdx || 0);
+    var b = Math.min(times.length - 1, seg.endIdx != null ? seg.endIdx : a);
+    if (b - a < 3) b = Math.min(times.length - 1, a + 3); // 点太少时向后再取几个点，避免算出全 0
+    return { a: a, b: b, startT: times[a], endT: times[b] };
+  }
+
+  function bearingDeg(p, q) {
+    var dLon = (q.lon - p.lon) * Math.cos((p.lat + q.lat) / 2 * Math.PI / 180);
+    var dLat = q.lat - p.lat;
+    return Math.atan2(dLon, dLat) * 180 / Math.PI;
+  }
+
+  function segMetrics(seg) {
+    var pts = state.disp, times = state.times;
+    var sp0 = segSpan(seg);
+    var a = sp0.a, b = sp0.b;
+    var m = {
+      duration: Math.max(0, (times[b] - times[a]) / 1000),
+      dist: 0, altStart: pts[a].alt, altEnd: pts[b].alt,
+      altMin: pts[a].alt, altMax: pts[a].alt,
+      vvAvg: 0, vvMin: 0, spAvg: 0, spMax: 0,
+      pitchMin: 0, pitchMax: 0, turnSum: 0, turnPeak: 0, signFlips: 0
+    };
+    var vvArr = [], spArr = [], hdArr = [];
+    var k = 0;
+    for (var i = a; i <= b; i++) {
+      m.altMin = Math.min(m.altMin, pts[i].alt);
+      m.altMax = Math.max(m.altMax, pts[i].alt);
+      if (i === a) continue;
+      var dt = Math.max((times[i] - times[i - 1]) / 1000, 0.5);
+      var dh = core.geo.haversine(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
+      m.dist += dh;
+      vvArr.push((pts[i].alt - pts[i - 1].alt) / dt); // 垂直速度 m/s（正=爬升）
+      spArr.push(dh / dt);                            // 水平速度 m/s
+      hdArr.push(bearingDeg(pts[i - 1], pts[i]));
+      k++;
+    }
+    // 3 点滑动平均，压掉 1 秒采样的单点尖峰（否则俯仰角会跳出 ±70° 的假值）
+    function smooth(arr, idx) {
+      var s = 0, n = 0;
+      for (var j = idx - 1; j <= idx + 1; j++) {
+        if (j >= 0 && j < arr.length) { s += arr[j]; n++; }
+      }
+      return n ? s / n : 0;
+    }
+    var vvSum = 0, spSum = 0;
+    for (var q = 0; q < k; q++) {
+      var vv = smooth(vvArr, q), sp = smooth(spArr, q);
+      vvSum += vv; spSum += sp;
+      m.vvMin = q === 0 ? vv : Math.min(m.vvMin, vv);
+      m.spMax = Math.max(m.spMax, sp);
+      // 俯仰角近似：纵向速度与水平速度的夹角（下滑角），仰为正、俯为负
+      var pitch = Math.atan2(vv, Math.max(sp, 0.5)) * 180 / Math.PI;
+      m.pitchMin = q === 0 ? pitch : Math.min(m.pitchMin, pitch);
+      m.pitchMax = q === 0 ? pitch : Math.max(m.pitchMax, pitch);
+      if (q > 0 && ((vvArr[q - 1] < 0 && vvArr[q] >= 0) || (vvArr[q - 1] > 0 && vvArr[q] <= 0))) m.signFlips++;
+      if (q > 0) {
+        var dBrg = hdArr[q] - hdArr[q - 1];
+        while (dBrg > 180) dBrg -= 360;
+        while (dBrg < -180) dBrg += 360;
+        m.turnSum += dBrg;
+        m.turnPeak = Math.max(m.turnPeak, Math.abs(dBrg) / Math.max((times[a + q + 1] - times[a + q]) / 1000, 0.5));
+      }
+    }
+    if (k) { m.vvAvg = vvSum / k; m.spAvg = (spSum / k) * 3.6; }
+    m.spMax = m.spMax * 3.6;
+    m.turnDir = m.turnSum > 5 ? '右转' : (m.turnSum < -5 ? '左转' : '直飞');
+    return m;
+  }
+
+
+  // 各风险类型的说明（只讲现象与通用处置，不替飞手判断操作对错）
+  var RISK_NOTES = {
+    pitchOsc: '伞在前后方向反复摆动，俯仰角来回变化。多见于乱流区、或刹车/重心操作不连贯的时候；复盘重点看这一段前后 10 秒的操纵节奏。',
+    sharpTurn: '短时间内转向速率明显偏大，伞体负载增加。急转本身不是错误，但已接近塌陷边界，要注意保持速度。',
+    spiral: '持续单向盘旋下降，下沉率较大。螺旋下降属于快速降高动作，务必在掌握正确进出方式的前提下进行。',
+    deepSink: '下沉率持续偏大，说明进入了强下沉区。应尽早前飞脱离，不要在 sink 区里长时间盘旋。',
+    fullStall: '速度与下沉同时满足失速判据，是本系统里最危险的一类状态。复盘重点看进入前的速度、刹车量和重心位置。',
+    bigEars: '速度下降、下沉增加但仍保持滑翔，属减速下沉（形似大耳朵/前缘塌陷）。出现后要及时释放，避免继续加深。'
+  };
+
+  function riskColor(sev) {
+    return sev >= 3 ? '#dc2626' : (sev >= 2 ? '#f43f5e' : '#fbbf24');
+  }
+
+  function openRiskModal(seg) {
+    if (!seg) return;
+    var box = document.getElementById('riskModal');
+    var title = document.getElementById('riskTitle');
+    var body = document.getElementById('riskBody');
+    if (!box || !body) return;
+    var m = segMetrics(seg);
+    var sevTxt = seg.severity >= 3 ? '高危' : '危险';
+    var col = riskColor(seg.severity);
+    title.innerHTML = '<span style="color:' + col + '">⚠ ' + seg.label + '</span>' +
+      '<span class="risk-badge" style="background:' + col + '22;color:' + col + ';border:1px solid ' + col + '55">' + sevTxt + '</span>';
+    var items = [];
+    function item(k, v, unit) {
+      items.push('<div class="risk-item"><div class="risk-k">' + k + '</div>' +
+        '<div class="risk-v">' + v + (unit ? '<small>' + unit + '</small>' : '') + '</div></div>');
+    }
+    // 采样点太稀（降落附近 GPS 几乎不动）时，俯仰/地速/转向算不出可信值，只报高度与时间
+    var sparse = m.dist < 30 || m.spAvg < 5;
+    if (!sparse) {
+      var pitchTxt = (m.pitchMax >= 0 ? '+' : '') + m.pitchMax.toFixed(0) + '° ~ ' + m.pitchMin.toFixed(0) + '°';
+      item('俯仰角', pitchTxt, '摆幅 ' + (m.pitchMax - m.pitchMin).toFixed(0) + '°');
+      item('升降率', (m.vvAvg > 0 ? '+' : '') + m.vvAvg.toFixed(1), 'm/s（最大下沉 ' + m.vvMin.toFixed(1) + '）');
+      item('地速', m.spAvg.toFixed(0), 'km/h（最高 ' + m.spMax.toFixed(0) + '）');
+      item('转向', m.turnDir, '峰值 ' + m.turnPeak.toFixed(0) + '°/s');
+    }
+    item('高度', Math.round(m.altStart) + ' → ' + Math.round(m.altEnd), 'm（区间 ' + Math.round(m.altMin) + '~' + Math.round(m.altMax) + '）');
+    item(sparse ? '时长' : '距离 · 时长',
+      sparse ? m.duration.toFixed(0) : Math.round(m.dist) + ' m',
+      sparse ? '秒' : m.duration.toFixed(0) + ' 秒');
+    var span0 = segSpan(seg);
+    body.innerHTML =
+      '<div class="risk-time">' + fmtMs(span0.startT) + ' → ' + fmtMs(span0.endT) + ' · 进度已跳到该处</div>' +
+      '<div class="risk-grid">' + items.join('') + '</div>' +
+      '<div class="risk-note">' + (RISK_NOTES[seg.key] || '该段姿态异常，建议放慢速度复看这一段。') +
+      (sparse ? '' : ' · 俯仰角由升降率与地速反推（IGC 无姿态传感器），属估算值。') + '</div>' +
+      (sparse ? '<div class="risk-note" style="border-left-color:#fbbf24;background:rgba(251,191,36,.08)">这一段只有少量采样点（多半在降落附近），无法可靠反推俯仰/速度，仅给出高度与时间。</div>' : '') +
+      (m.signFlips >= 2 ? '<div class="risk-note" style="border-left-color:#a855f7;background:rgba(168,85,247,.08)">本段升降方向来回切换 ' + m.signFlips + ' 次，是俯仰振荡的直接特征。</div>' : '');
+    box.classList.add('show');
+    state.riskSeg = seg;
+  }
+
+  function jumpToRisk(seg, play) {
+    var sp = segSpan(seg);
+    state.playMs = Math.max(0, Math.min(sp.startT, state.totalMs));
+    if (dom.seek) dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
+    updateSeekFill();
+    updateHud();
+    syncChartCursor();
+    if (play) {
+      state.playing = true;
+      if (dom.play) dom.play.textContent = '⏸';
+    }
+  }
+
   function updateTicks() {
     var n = state.disp ? state.disp.length - 1 : 0;
     [0, 0.25, 0.5, 0.75, 1].forEach(function (f, k) {
       var i = Math.round(n * f);
       dom.ticks[k].textContent = fmtMs(state.times ? state.times[i] : 0);
     });
-    // 姿态异常红点（severity>=2：俯仰振荡/急转/螺旋/全失速等）标注在时间轴上，点击跳转
+    // 姿态异常红点（severity>=2：俯仰振荡/急转/螺旋/全失速等）标注在时间轴上
+    // 点一下：进度条自动跳到该风险点 + 弹出这一段的风险详情
     var row = dom.seek.parentNode.querySelector('.tick-row');
     if (!row) return;
     row.querySelectorAll('.state-dot').forEach(function (d) { d.remove(); });
     (state.states || []).forEach(function (seg) {
       if (seg.severity < 2) return;
-      var left = state.totalMs > 0 ? (seg.startT / state.totalMs) * 100 : 0;
+      var sp = segSpan(seg);
+      var left = state.totalMs > 0 ? (sp.startT / state.totalMs) * 100 : 0;
       var dot = document.createElement('span');
       dot.className = 'state-dot';
-      dot.title = seg.label + ' ' + fmtMs(seg.startT) + '-' + fmtMs(seg.endT);
+      dot.title = seg.label + ' ' + fmtMs(sp.startT) + '-' + fmtMs(sp.endT) + '（点开看详情）';
       dot.style.left = Math.max(0, Math.min(100, left)) + '%';
       dot.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        state.playMs = seg.startT;
-        dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
-        updateSeekFill();
-        updateHud();
-        syncChartCursor();
+        ev.preventDefault();
+        jumpToRisk(seg, false);
+        openRiskModal(seg);
       });
       row.appendChild(dot);
     });
@@ -1621,7 +1766,7 @@
     if (sbar) {
       if (seg && seg.severity >= 2) {
         sbar.style.display = 'block';
-        sbar.textContent = '⚠ 姿态风险：' + seg.label + '（' + fmtMs(seg.startT) + ' - ' + fmtMs(seg.endT) + '）复盘学习，请勿模仿';
+        sbar.textContent = '⚠ 姿态风险：' + seg.label + '（' + fmtMs(segSpan(seg).startT) + ' - ' + fmtMs(segSpan(seg).endT) + '）复盘学习，请勿模仿';
       } else {
         sbar.style.display = 'none';
       }
@@ -1629,12 +1774,14 @@
   }
 
   // 当前时间点对应的姿态状态段（含起飞/降落覆盖逻辑外的风险判定）
+  // 注意：state.states 里的 startT/endT 是绝对时间戳，这里按 index 换算成相对时间再比
   function stateAtTime(ms) {
     if (!state.states || !state.states.length || !state.times) return null;
     var t = ms;
     for (var k = 0; k < state.states.length; k++) {
       var seg = state.states[k];
-      if (t >= seg.startT && t <= seg.endT) return seg;
+      var sp = segSpan(seg);
+      if (t >= sp.startT && t <= sp.endT) return seg;
     }
     return null;
   }
@@ -2625,6 +2772,15 @@
       climbData.push(Math.round(((pts[i].alt - pts[i - 1].alt) / dt) * 10) / 10);
     }
     if (!state.chart) state.chart = window.echarts.init(dom.chartBox);
+    // 风险段在高度曲线上打红色阴影带（点这条带子也能看详情）
+    var riskBands = (state.states || []).filter(function (x) { return x.severity >= 2; })
+      .map(function (x) {
+        var sp = segSpan(x);
+        return [
+          { xAxis: sp.startT / 1000, itemStyle: { color: 'rgba(244,63,94,.16)' } },
+          { xAxis: sp.endT / 1000 }
+        ];
+      });
     state.chart.setOption({
       backgroundColor: 'transparent',
       grid: { left: 40, right: 44, top: 18, bottom: 24 },
@@ -2670,6 +2826,11 @@
             lineStyle: { color: '#f87171', width: 1 },
             label: { show: false },
             data: [{ xAxis: 0 }]
+          },
+          markArea: {
+            silent: true,
+            borderWidth: 0,
+            data: riskBands
           }
         },
         {
@@ -2682,11 +2843,23 @@
         }
       ]
     });
-    // 点曲线跳转播放位置
+    // 点曲线跳转播放位置；若点在风险段红带内，同时弹出该段详情
     state.chart.getZr().on('click', function (ev) {
       var point = state.chart.convertFromPixel({ seriesIndex: 0 }, [ev.offsetX, ev.offsetY]);
       if (point && point[0] != null) {
-        state.playMs = point[0] * 1000;
+        var ms = point[0] * 1000;
+        var seg = null;
+        (state.states || []).forEach(function (x) {
+          if (x.severity < 2) return;
+          var sp = segSpan(x);
+          if (ms >= sp.startT && ms <= sp.endT) seg = x;
+        });
+        if (seg) {
+          jumpToRisk(seg, false);
+          openRiskModal(seg);
+          return;
+        }
+        state.playMs = ms;
         dom.seek.value = Math.round((state.playMs / state.totalMs) * 1000);
         updateSeekFill();
         updateHud();
@@ -3033,6 +3206,18 @@
     });
     document.getElementById('thermalClose').addEventListener('click', function () {
       document.getElementById('thermalModal').classList.remove('show');
+    });
+    // 风险段详情弹层
+    var riskModal = document.getElementById('riskModal');
+    document.getElementById('riskClose').addEventListener('click', function () {
+      riskModal.classList.remove('show');
+    });
+    document.getElementById('riskPlay').addEventListener('click', function () {
+      riskModal.classList.remove('show');
+      if (state.riskSeg) jumpToRisk(state.riskSeg, true);
+    });
+    riskModal.addEventListener('click', function (ev) {
+      if (ev.target === riskModal) riskModal.classList.remove('show');
     });
 
     refreshAuthUI();
