@@ -11,7 +11,38 @@
   <link href="vendor/cesium/Widgets/widgets.css" rel="stylesheet" />
   <!-- ECharts（高度曲线联动，本站自托管） -->
   <script src="vendor/echarts.min.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=48" />
+  <link rel="stylesheet" href="css/style.css?v=49" />
+  <script>
+    // 版本自愈：手机端 TWA/PWA 经常因为 Service Worker 旧缓存长期跑旧 JS（网页端却是新的）。
+    // 这里比对外壳版本号，不一致就注销旧 SW + 清空 Cache Storage，并只重载一次。
+    (function () {
+      try {
+        var V = '3.23';
+        var KEY = 'kx_shell_version';
+        if (localStorage.getItem(KEY) === V) return;
+        localStorage.setItem(KEY, V);
+        var jobs = [];
+        if (window.caches && window.caches.keys) {
+          jobs.push(caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (n) { return caches.delete(n); }));
+          }));
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+            return Promise.all(rs.map(function (r) { return r.unregister(); }));
+          }));
+        }
+        var done = false;
+        function go() {
+          if (done) return;
+          done = true;
+          location.reload();
+        }
+        if (jobs.length) Promise.all(jobs).then(go, go);
+        setTimeout(go, 1200); // 兜底：清缓存卡住也重载，别停在旧界面
+      } catch (e) {}
+    })();
+  </script>
   <script>
     // PWA 注册（离线可打开；注意：Cesium/ECharts 为 CDN 资源，卫星瓦片仍需联网）
     if ('serviceWorker' in navigator) {
@@ -85,7 +116,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.22</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.23</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -576,7 +607,7 @@
   <script src="js/app-core.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/api.js"></script>
-  <script src="js/main.js?v=48"></script>
+  <script src="js/main.js?v=49"></script>
   <!-- 站点访问统计（不蒜子，免费；统计的是网页访问 PV/UV） -->
   <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
   <script>
