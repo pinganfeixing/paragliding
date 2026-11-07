@@ -1660,33 +1660,41 @@
     }
   }
 
-  // 导入/切换图源后：自动定位跳转到本次飞行起飞点位
-  // 关键：相机不能"站在起飞点正上方"（那样视线中心会落在起飞点前方几百米，起飞点被甩出画面，
-  // 每次都要手动拖地图）。改为沿航线反方向后退一段，让视线中心正好压住起飞点。
+  // 导入/切换图源后：自动定位到整条航线，起飞点在上、降落场在下
+  //   相机不再悬在起飞点正上方（那样视线中心落在前方几百米，起飞点被甩出画面），
+  //   也不朝降落场方向看（那样航线是"往上飞"）。这里把镜头放到降落场一侧回望起飞点，
+  //   高度按全程距离自适应，整段航迹竖着铺满屏幕：上方起飞、下方降落。
   function zoomToTrack(positions) {
     var cesium = window.Cesium;
     try {
-      var p0 = state.disp[0];
-      if (!p0) return;
-      var CAM_H = 1200;                    // 相机相对起飞点的高度（米）
-      var PITCH = Math.PI / 3;             // 俯视 60°
-      var BACK = CAM_H / Math.tan(PITCH);  // 视线中心落地点到相机的水平距离
-      // 镜头朝向航线方向（取航迹约 20% 处的点作方向参考），固定朝北会看不到航线
       var pts = state.disp;
-      var i1 = Math.min(pts.length - 1, Math.max(1, Math.round((pts.length - 1) * 0.2)));
-      var p1 = pts[i1] || p0;
-      var dLat0 = p1.lat - p0.lat;
-      var dLon0 = (p1.lon - p0.lon) * Math.cos(p0.lat * Math.PI / 180);
+      var p0 = pts[0];
+      if (!p0) return;
+      var pEnd = pts[pts.length - 1] || p0;
+      var PITCH = Math.PI / 3; // 俯视 60°
+
+      // 全程水平距离（米），用来决定相机高度：短航迹别拉太远，长航迹别切掉两端
+      var cosLat = Math.cos(p0.lat * Math.PI / 180);
+      var dLatF = pEnd.lat - p0.lat;
+      var dLonF = (pEnd.lon - p0.lon) * cosLat;
+      var dist = Math.sqrt(dLatF * dLatF + dLonF * dLonF) * 111320;
+
+      var CAM_H = Math.min(30000, Math.max(1200, dist * 1.6)); // 相机相对地面高度
+      // 让视线中心落在航迹中点： 相机在降落场外侧 back 处
+      var BACK = CAM_H / Math.tan(PITCH) - dist * 0.5;
+      if (BACK < 150) BACK = 150;
+
+      // 朝向：从降落场回望起飞点（屏幕上"上"= 起飞方向）
       var heading = 0;
-      if (Math.sqrt(dLat0 * dLat0 + dLon0 * dLon0) * 111320 > 50) {
-        heading = Math.atan2(dLon0, dLat0); // 顺时针自北的弧度
+      if (dist > 50) {
+        heading = Math.atan2(-dLonF, -dLatF);
       }
-      // 相机后退到起飞点身后，起飞点即落在画面正中心
-      var mLat = BACK * Math.cos(heading);
-      var mLon = BACK * Math.sin(heading);
+      // 相机位置 = 降落场沿"背离起飞点"方向再退 BACK 米
+      var mLat = -BACK * Math.cos(heading);
+      var mLon = -BACK * Math.sin(heading);
       var dest = cesium.Cartesian3.fromDegrees(
-        p0.lon - mLon / (111320 * Math.cos(p0.lat * Math.PI / 180)),
-        p0.lat - mLat / 111320,
+        pEnd.lon + mLon / (111320 * cosLat),
+        pEnd.lat + mLat / 111320,
         Math.max(p0.alt, 300) + CAM_H
       );
       viewer.camera.flyTo({
