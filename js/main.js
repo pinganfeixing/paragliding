@@ -4257,11 +4257,43 @@
     });
   }
 
+  // 3D 渲染崩溃自恢复：手机端 GPU 进程被回收时，Cesium 常报
+  // "Fragment shader failed to compile" 或 "Rendering has stopped"，整块地图变灰
+  function installCrashGuard() {
+    var reloaded = false;
+    function tryReload() {
+      if (reloaded) return;
+      reloaded = true;
+      var n = 0;
+      try { n = Number(sessionStorage.getItem('k3d_reload') || 0); } catch (e) {}
+      if (n >= 1) {
+        showDiag('3D 渲染失败：请把 Chrome 的其他标签页关掉，再重开 App', true);
+        return;
+      }
+      try { sessionStorage.setItem('k3d_reload', String(n + 1)); } catch (e) {}
+      setTimeout(function () { location.reload(); }, 1000);
+    }
+    window.addEventListener('error', function (e) {
+      var msg = (e && e.message) || '';
+      if (/shader failed|Rendering has stopped|Context Lost/i.test(msg)) tryReload();
+    });
+    function bindCanvas() {
+      var cv = document.querySelector('#cesiumContainer canvas');
+      if (!cv) { setTimeout(bindCanvas, 1500); return; }
+      cv.addEventListener('webglcontextlost', function (ev) {
+        ev.preventDefault();
+        tryReload();
+      });
+    }
+    bindCanvas();
+  }
+
   // ============ 启动 ============
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { init(); bootShareReceiver(); });
+    document.addEventListener('DOMContentLoaded', function () { init(); installCrashGuard(); bootShareReceiver(); });
   } else {
     init();
+    installCrashGuard();
     bootShareReceiver();
   }
 })();
