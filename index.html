@@ -7,10 +7,10 @@
   <!-- PWA：可安装 / 离线缓存外壳 -->
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0b1120" />
-  <!-- Cesium（CDN，需联网；1.103 稳定版） -->
-  <link href="https://cdn.jsdelivr.net/npm/cesium@1.103.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-  <!-- ECharts（高度曲线联动） -->
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <!-- Cesium 1.103.0（本站自托管，国内直连，不再依赖 jsDelivr） -->
+  <link href="vendor/cesium/Widgets/widgets.css" rel="stylesheet" />
+  <!-- ECharts（高度曲线联动，本站自托管） -->
+  <script src="vendor/echarts.min.js"></script>
   <link rel="stylesheet" href="css/style.css" />
   <script>
     // PWA 注册（离线可打开；注意：Cesium/ECharts 为 CDN 资源，卫星瓦片仍需联网）
@@ -85,7 +85,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.18</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.19</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -559,11 +559,12 @@
     // 天地图 key：已配置，天地图卫星影像（CGCS2000，无偏移）直接可用
     var TIANDITU_KEY = '8736917028ca5a91068b85d4190332c7';
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/cesium@1.103.0/Build/Cesium/Cesium.js"></script>
+  <script>window.CESIUM_BASE_URL = '/vendor/cesium/';</script>
+  <script src="vendor/cesium/Cesium.js"></script>
   <script src="js/app-core.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/api.js"></script>
-  <script src="js/main.js?v=44"></script>
+  <script src="js/main.js?v=45"></script>
   <!-- 站点访问统计（不蒜子，免费；统计的是网页访问 PV/UV） -->
   <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
   <script>
