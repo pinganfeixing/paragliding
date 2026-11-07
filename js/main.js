@@ -4167,9 +4167,48 @@
   }
 
   // ============ 接收系统「分享」进来的轨迹（XCSoar / XC Track → 本 App）============
-  // App 端 ShareActivity 把收到的 IGC 放在手机本机 127.0.0.1 的临时服务上，这里取回来自动回放
+  // 主通道：App 把 IGC 压成 gzip+base64 塞进 URL 的 #share= 片段，这里读片段直接回放
+  // 备用通道：超大文件走本机 127.0.0.1 的临时服务
   var SHARE_PORTS = [47823, 47824, 47825];
   var _shareBusy = false;
+
+  function b64ToBytes(b64) {
+    var s = b64.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function gunzipBytes(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.reject(new Error('当前浏览器不支持解压'));
+    }
+    var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).text();
+  }
+
+  function importFromHash() {
+    var h = location.hash || '';
+    var m = /share=([A-Za-z0-9\-_]+)/.exec(h);
+    if (!m) return false;
+    var name = 'track.igc';
+    var nm = /n=([^&]+)/.exec(h);
+    if (nm) { try { name = decodeURIComponent(nm[1]); } catch (e) {} }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    gunzipBytes(b64ToBytes(m[1]))
+      .then(function (text) {
+        var t = core.parseTrack(text, name);
+        var base = name.replace(/\.[^.]+$/, '');
+        loadTrack(t.points, base + ' 的飞行（来自分享）', t.meta);
+        showDiag('已从 XC 导入轨迹：' + name, false);
+      })
+      .catch(function (err) {
+        showDiag('分享的轨迹导入失败：' + (err && err.message ? err.message : err), true);
+      });
+    return true;
+  }
 
   function receiveSharedTrack(depth) {
     if (_shareBusy) return;
@@ -4208,11 +4247,12 @@
   }
 
   function bootShareReceiver() {
-    setTimeout(function () { receiveSharedTrack(0); }, 700);
+    if (!importFromHash()) setTimeout(function () { receiveSharedTrack(0); }, 700);
+    window.addEventListener('hashchange', function () { importFromHash(); });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') {
         _shareBusy = false;
-        setTimeout(function () { receiveSharedTrack(0); }, 300);
+        if (!importFromHash()) setTimeout(function () { receiveSharedTrack(0); }, 300);
       }
     });
   }
