@@ -843,7 +843,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.22';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.23';
       var coord0 = document.getElementById('trackCoord'); if (coord0) coord0.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -909,7 +909,7 @@
     dom.trackMeta.textContent =
       fmtDur(s.durationSec) + ' · ' + (s.totalDistance / 1000).toFixed(1) + ' km · 最高 ' +
       s.maxAlt + ' m · 热气流 ' + (s.thermalCount || 0) + ' 个' +
-      (metaParts.length ? ' · ' + metaParts.join(' · ') : '');
+      (metaParts.length ? ' · ' + metaParts.join(' · ') : '') + ' · v3.23';
     // 气象快照：导入时显示"当日风况预估"（从 IGC H 记录提取）
     var tw = document.getElementById('trackWeather');
     if (tw) {
@@ -1123,6 +1123,8 @@
     fade.show = false;
     state.tailLayers.push(fade);
     state._lastTailAt = 0;
+    // 渲染完立刻按当前状态定一次显隐（播放中不要留整条预览线）
+    try { updateTail(true); } catch (err) {}
   }
 
   // 二分：第一个 >= val 的索引
@@ -1200,22 +1202,25 @@
     for (var i = 1; i < d.length; i++) state._segColors.push(segColor(d[i - 1], d[i]));
   }
 
-  function updateTail() {
-    if (!state.terrainPositions || !state.disp) return;
-    var now = Date.now();
-    if (now - state._lastTailAt < 120) return;
-    state._lastTailAt = now;
-
+  function updateTail(force) {
+    // 【顺序很重要】先决定"整条预览线"的显隐，再看有没有地形坐标画窗口段。
+    // 早于此之前 return，会出现"播放中整条淡线一直挂着、又没有尾迹"的观感。
+    if (!state.disp) return;
     // 回到起点/未播放时：显示静态预览线（整条淡色），隐藏尾迹窗口
     // 只要在播放中就一律进窗口分支，避免 playMs 还停在起点时预览线挂着整条航线
     if (state.playMs <= 100 && !state.playing) {
       if (state.previewLine) state.previewLine.show = true;
-      state.mainPool.forEach(function (s) { s.show = false; });
-      state.tailLayers.forEach(function (l) { l.show = false; });
+      (state.mainPool || []).forEach(function (s) { s.show = false; });
+      (state.tailLayers || []).forEach(function (l) { l.show = false; });
       return;
     }
     // 播放/拖动时：隐藏预览线，显示 30s 尾迹窗口
     if (state.previewLine) state.previewLine.show = false;
+    if (!state.terrainPositions || !state.times || !state.times.length) return;
+
+    var now = Date.now();
+    if (!force && now - state._lastTailAt < 120) return;
+    state._lastTailAt = now;
 
     var pos = state.terrainPositions;
     var t = state.times;
@@ -1489,6 +1494,8 @@
     // 沉浸观看：播放时隐藏轨迹信息卡与底部指标条，暂停恢复
     document.body.classList.toggle('playing', state.playing);
     if (!state.playing) document.body.classList.remove('ui-tap-hidden');
+    // 立刻切尾迹模式：播放=只留窗口段，暂停回到起点=整条预览线
+    updateTail(true);
   }
 
   function cycleSpeed() {
@@ -1502,6 +1509,7 @@
     updateSeekFill();
     updateHud();
     syncChartCursor();
+    updateTail(true);
   }
 
   function updateSeekFill() {
@@ -1648,6 +1656,7 @@
     updateSeekFill();
     updateHud();
     syncChartCursor();
+    updateTail(true);
     if (play) {
       state.playing = true;
       if (dom.play) dom.play.textContent = '⏸';
