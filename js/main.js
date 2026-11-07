@@ -843,7 +843,7 @@
       state.totalMs = 0; state.playMs = 0; state.playing = false;
       state.curTrack = null; state.stats = null; state.states = [];
       dom.trackName.textContent = '打开右上角「导入」加载 IGC 轨迹';
-      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.23';
+      dom.trackMeta.textContent = '支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.24';
       var coord0 = document.getElementById('trackCoord'); if (coord0) coord0.textContent = '';
       var el = document.getElementById('trackSummary'); if (el) el.textContent = '';
       var w = document.getElementById('trackWeather'); if (w) w.textContent = '';
@@ -909,7 +909,7 @@
     dom.trackMeta.textContent =
       fmtDur(s.durationSec) + ' · ' + (s.totalDistance / 1000).toFixed(1) + ' km · 最高 ' +
       s.maxAlt + ' m · 热气流 ' + (s.thermalCount || 0) + ' 个' +
-      (metaParts.length ? ' · ' + metaParts.join(' · ') : '') + ' · v3.23';
+      (metaParts.length ? ' · ' + metaParts.join(' · ') : '') + ' · v3.24';
     // 气象快照：导入时显示"当日风况预估"（从 IGC H 记录提取）
     var tw = document.getElementById('trackWeather');
     if (tw) {
@@ -1089,22 +1089,9 @@
     state.mainPool = [];
     state.tailLayers = [];
 
-    // 静态预览线：整条淡色细线，未播放时可见（自定义色优先，否则随着色模式：升降=淡红 / 速度=蓝 / 爬升=绿 / 滑翔比=青）
-    var previewColor = state.custom && state.custom.trajColor
-      ? state.custom.trajColor
-      : (state.colorMode === 'climb' ? '#4ade80' : (state.colorMode === 'glide' ? '#5eead4' : (state.colorMode === 'flow' ? '#f43f5e' : '#38bdf8')));
-    var preview = viewer.entities.add({
-      polyline: {
-        positions: state.terrainPositions,
-        width: (state.custom && state.custom.trajWidth) || 1.2,
-        material: new cesium.PolylineGlowMaterialProperty({
-          glowPower: 0.1,
-          color: cesium.Color.fromCssColorString(previewColor).withAlpha(0.55)
-        }),
-        arcType: cesium.ArcType.NONE
-      }
-    });
-    state.previewLine = preview;
+    // 【v3.24】不再画"整条淡色预览线"：手机上会出现整条航线一直在（跟旧观感不符）。
+    // 现在只保留 30 秒尾迹窗口（+15 秒过渡段），未播放/回到起点时窗口为空，画面只有起降标记。
+    state.previewLine = null;
 
     // 过渡尾段（原 3 层低透明尾迹已移除——低透明度+稀疏点会渲染成散点，观感差）：
     // 主线 30s 窗口之后的一小段（30-45s 前），半透明延续主色，随播放窗口前移
@@ -1203,19 +1190,13 @@
   }
 
   function updateTail(force) {
-    // 【顺序很重要】先决定"整条预览线"的显隐，再看有没有地形坐标画窗口段。
-    // 早于此之前 return，会出现"播放中整条淡线一直挂着、又没有尾迹"的观感。
     if (!state.disp) return;
-    // 回到起点/未播放时：显示静态预览线（整条淡色），隐藏尾迹窗口
-    // 只要在播放中就一律进窗口分支，避免 playMs 还停在起点时预览线挂着整条航线
+    // 回到起点/未播放时：没有尾迹窗口可画，全部隐藏（v3.24 起不再有整条预览线）
     if (state.playMs <= 100 && !state.playing) {
-      if (state.previewLine) state.previewLine.show = true;
       (state.mainPool || []).forEach(function (s) { s.show = false; });
       (state.tailLayers || []).forEach(function (l) { l.show = false; });
       return;
     }
-    // 播放/拖动时：隐藏预览线，显示 30s 尾迹窗口
-    if (state.previewLine) state.previewLine.show = false;
     if (!state.terrainPositions || !state.times || !state.times.length) return;
 
     var now = Date.now();
