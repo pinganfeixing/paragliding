@@ -3159,6 +3159,26 @@
       .catch(function (e) { showDiag('加载失败：' + e.message, true); });
   }
 
+  // ---- 收到 XC 分享（App 已上传到服务器，页面按短 id 取回并直接回放） ----
+  function openSharedTrackById(id, title) {
+    showDiag('正在加载分享的轨迹…', false, 20000);
+    fetch('/api/tracks/' + encodeURIComponent(id) + '/download', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (text) {
+        var parsed = core.parseTrack(text, 'shared.igc');
+        if (!parsed || !parsed.points || parsed.points.length < 2) {
+          throw new Error('文件里没有可用的飞行点');
+        }
+        loadTrack(parsed.points, title || '分享的飞行', parsed.meta || {});
+        setView('replay');
+        showDiag('已打开分享的轨迹：' + (title || '分享的飞行') + '（' + parsed.points.length + ' 点）', false, 12000);
+        clearShareFlag();
+      })
+      .catch(function (e) {
+        showDiag('打开分享轨迹失败：' + (e && e.message ? e.message : e), true, 20000);
+      });
+  }
+
   function publishTrack() {
     if (!community.uploadPoints || community.uploadPoints.length < 2) { showDiag('没有可发布的轨迹数据', true); return; }
     var title = document.getElementById('upTitle').value.trim() || community.uploadName + ' 的飞行';
@@ -4240,7 +4260,8 @@
 
   function clearShareFlag() {
     try {
-      var s = (location.search || '').replace(/[?&]s=[^&#]*/g, '').replace(/[?&]w=[^&#]*/g, '');
+      var s = (location.search || '').replace(/[?&]s=[^&#]*/g, '').replace(/[?&]w=[^&#]*/g, '')
+        .replace(/[?&]track=[^&#]*/g, '').replace(/[?&]tname=[^&#]*/g, '');
       if (s === '?' || s === '') s = '';
       else if (s.charAt(0) !== '?') s = '?' + s.replace(/^&/, '');
       history.replaceState(null, '', location.pathname + s);
@@ -4295,6 +4316,13 @@
   }
 
   function bootShareReceiver() {
+    // 通道零：App 已把分享的 IGC 传到服务器，页面按短 id 取回（最稳，不受本机端口限制）
+    var tid = paramOf('track');
+    if (tid) {
+      openSharedTrackById(tid, paramOf('tname') || '分享的飞行');
+      return;
+    }
+
     // 通道一：URL 片段/查询里直接带数据（旧式，兼容）
     if (importFromHash()) {
       clearShareFlag();
