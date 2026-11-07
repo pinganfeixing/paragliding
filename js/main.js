@@ -272,7 +272,19 @@
       baseLayerPicker: false, geocoder: false, homeButton: false,
       sceneModePicker: false, navigationHelpButton: false, fullscreenButton: false,
       animation: false, timeline: false, infoBox: false, selectionIndicator: false,
-      requestRenderMode: false
+      requestRenderMode: false,
+      // 安卓部分机型（小米/Mali 驱动）在 WebGL2 + MSAA 下片元着色器编译失败，
+      // 表现为 "Fragment shader failed to compile. Compile log: null"。
+      // 强制走 WebGL1 且关闭抗锯齿，可绕开该驱动问题；画质差异在飞行复盘里几乎看不出。
+      requestWebgl1: true,
+      contextOptions: {
+        webgl: {
+          antialias: false,
+          alpha: false,
+          preserveDrawingBuffer: false,
+          powerPreference: 'default'
+        }
+      }
     });
     // —— 启动画面：viewer 就绪后淡出隐藏（含 12s 兜底，避免异常时卡住白屏） ——
     var splash = document.getElementById('splash');
@@ -304,8 +316,16 @@
     // 渲染错误捕获（替代系统弹窗）
     try {
       viewer.scene.renderError.addEventListener(function (scene, err) {
+        var m = (err && err.message) ? err.message : String(err);
         console.error('[Cesium renderError]', err, err && err.stack);
-        showDiag('渲染错误（已捕获）：' + (err && err.message ? err.message : err), true);
+        if (/shader|Rendering has stopped|context lost/i.test(m)) {
+          // 手机显卡驱动吃不下 3D 着色器（小米/Mali 上常见）。轨迹已经存进本地库，
+          // 提示用户关掉多余页面重开，而不是塞一个 2D 图糊弄过去。
+          showDiag('这台手机的 3D 绘图被系统限制了（着色器编译失败）。轨迹已存进你的轨迹库，' +
+            '把 App 从后台彻底划掉再重开，从「我的轨迹」点开就能看。', true, 20000);
+          return;
+        }
+        showDiag('渲染错误（已捕获）：' + m, true);
       });
     } catch (e) { /* 老版本无 renderError */ }
 
@@ -3159,20 +3179,57 @@
       .catch(function (e) { showDiag('加载失败：' + e.message, true); });
   }
 
-  // ---- 收到 XC 分享（App 已上传到服务器，页面按短 id 取回并直接回放） ----
+  // ---- 收到 XC 分享（App 已上传到服务器，页面按短 id 取回、直接回放并存进我的轨迹库） ----
   function openSharedTrackById(id, title) {
     showDiag('正在加载分享的轨迹…', false, 20000);
     fetch('/api/tracks/' + encodeURIComponent(id) + '/download', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(function (text) {
-        var parsed = core.parseTrack(text, 'shared.igc');
+        var parsed = core.parseTrack(text, 'shared-' + id + '.igc');
         if (!parsed || !parsed.points || parsed.points.length < 2) {
           throw new Error('文件里没有可用的飞行点');
         }
-        loadTrack(parsed.points, title || '分享的飞行', parsed.meta || {});
+        var name = title || '分享的飞行';
+        var pts = parsed.points;
+
+        // ① 先直接进 3D 复盘
+        loadTrack(pts, name, parsed.meta || {});
         setView('replay');
-        showDiag('已打开分享的轨迹：' + (title || '分享的飞行') + '（' + parsed.points.length + ' 点）', false, 12000);
+        showDiag('已打开分享的轨迹：' + name + '（' + pts.length + ' 点）', false, 12000);
         clearShareFlag();
+
+        // ② 同时落一份到本地轨迹库 —— 等于"导入"，之后从「我的轨迹/社区」也能点开
+        try {
+          var s = core.stats.computeStats(core.stats.decimate(pts, 2000));
+          window.SanjiStore.me().then(function (u) {
+            return window.SanjiStore.add('tracks', {
+              title: name,
+              base: '',
+              note: '从 XC 分享导入',
+              photo: null,
+              visibility: 'private',
+              authorId: (u && u.nickname) || '小凯',
+              authorName: (u && u.nickname) || '小凯',
+              points: pts,
+              thermals: (s.thermals || []).map(function (h) {
+                return {
+                  lat: h.centerLat != null ? h.centerLat : h.lat,
+                  lon: h.centerLon != null ? h.centerLon : h.lon,
+                  altGain: h.altGain || 0,
+                  avgClimb: h.avgClimb || 0,
+                  duration: h.duration || 0
+                };
+              }),
+              meta: { dur: s.durationSec, dist: Math.round(s.totalDistance), maxAlt: s.maxAlt, th: s.thermalCount },
+              createdAt: Date.now()
+            });
+          }).then(function () {
+            _thermalCache = null;
+            try { refreshCommunity(); } catch (e) {}
+            try { refreshBases(); } catch (e) {}
+            try { refreshTracks(); } catch (e) {}
+          });
+        } catch (e2) { /* 存库失败不影响本次回放 */ }
       })
       .catch(function (e) {
         showDiag('打开分享轨迹失败：' + (e && e.message ? e.message : e), true, 20000);
@@ -4362,6 +4419,184 @@
 
   // 3D 渲染崩溃自恢复：手机端 GPU 进程被回收时，Cesium 常报
   // "Fragment shader failed to compile" 或 "Rendering has stopped"，整块地图变灰
+  // ============ 2D 航迹图（3D 不可用时的兜底，保证轨迹一定看得见） ============
+  var flat = { on: false, cv: null, ctx: null, off: null, map: null, cacheKey: '', info: null, t0: 0, loop: 0 };
+
+  function enterFlatMode(reason) {
+    if (flat.on) return;
+    flat.on = true;
+    state.flatMode = true;
+    try { if (viewer) { viewer.destroy(); viewer = null; } } catch (e) {}
+    var host = document.getElementById('cesiumContainer');
+    if (!host) return;
+    // 清掉 Cesium 自己弹的错误面板
+    Array.prototype.forEach.call(document.querySelectorAll('.cesium-widget-errorPanel'), function (el) {
+      el.parentNode && el.parentNode.removeChild(el);
+    });
+    host.innerHTML = '';
+    host.style.position = 'relative';
+    host.style.background = 'linear-gradient(180deg,#0b1220 0%,#101a33 100%)';
+
+    var cv = document.createElement('canvas');
+    cv.style.cssText = 'display:block;width:100%;height:100%;';
+    host.appendChild(cv);
+    flat.cv = cv;
+    flat.ctx = cv.getContext('2d');
+
+    var tag = document.createElement('div');
+    tag.style.cssText = 'position:absolute;left:12px;top:58px;z-index:9;padding:6px 10px;border-radius:8px;' +
+      'background:rgba(15,23,42,.85);color:#fbbf24;font-size:12px;border:1px solid rgba(251,191,36,.45);max-width:78%';
+    tag.textContent = '2D 航迹模式（3D 不可用：' + (reason || '着色器异常') + '）';
+    host.appendChild(tag);
+
+    var info = document.createElement('div');
+    info.style.cssText = 'position:absolute;left:12px;bottom:18px;z-index:9;padding:6px 10px;border-radius:8px;' +
+      'background:rgba(15,23,42,.85);color:#cbd5e1;font-size:12px;border:1px solid rgba(148,163,184,.35)';
+    host.appendChild(info);
+    flat.info = info;
+
+    var btn = document.createElement('button');
+    btn.textContent = '▶ 播放';
+    btn.style.cssText = 'position:absolute;right:12px;bottom:18px;z-index:9;padding:8px 14px;border-radius:8px;' +
+      'background:#2563eb;color:#fff;font-size:13px;border:0';
+    btn.addEventListener('click', function () {
+      flat.t0 = 0;
+      btn.textContent = '▶ 播放';
+    });
+    host.appendChild(btn);
+
+    window.addEventListener('resize', function () { flat.cacheKey = ''; });
+    flat.cacheKey = '';
+    flat.t0 = 0;
+    drawFlat();
+    showDiag('3D 渲染失败，已切换到 2D 航迹图', true, 4000);
+  }
+
+  function flatProject(pts, pw, ph) {
+    var i, latMin = 90, latMax = -90, lonMin = 180, lonMax = -180;
+    for (i = 0; i < pts.length; i++) {
+      if (pts[i].lat < latMin) latMin = pts[i].lat;
+      if (pts[i].lat > latMax) latMax = pts[i].lat;
+      if (pts[i].lon < lonMin) lonMin = pts[i].lon;
+      if (pts[i].lon > lonMax) lonMax = pts[i].lon;
+    }
+    var pad = Math.round(28 * (pw / 360));
+    var cosL = Math.cos(((latMin + latMax) / 2) * Math.PI / 180) || 1;
+    var spanX = Math.max((lonMax - lonMin) * cosL, 1e-6);
+    var spanY = Math.max(latMax - latMin, 1e-6);
+    var aw = pw - pad * 2, ah = ph - pad * 2;
+    var k = Math.min(aw / spanX, ah / spanY);
+    var ox = pad + (aw - spanX * k) / 2;
+    var oy = pad + (ah - spanY * k) / 2;
+    var xs = [], ys = [];
+    for (i = 0; i < pts.length; i++) {
+      xs.push(ox + (pts[i].lon - lonMin) * cosL * k);
+      ys.push(oy + (latMax - pts[i].lat) * k);
+    }
+    return { xs: xs, ys: ys, pad: pad };
+  }
+
+  function flatBase(pts, map, pw, ph) {
+    var off = document.createElement('canvas');
+    off.width = pw; off.height = ph;
+    var g = off.getContext('2d');
+    // 底纹
+    var lg = g.createLinearGradient(0, 0, 0, ph);
+    lg.addColorStop(0, '#0b1220'); lg.addColorStop(1, '#101a33');
+    g.fillStyle = lg; g.fillRect(0, 0, pw, ph);
+    g.strokeStyle = 'rgba(148,163,184,.10)'; g.lineWidth = 1;
+    var step = Math.round(pw / 8), i;
+    for (i = step; i < pw; i += step) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, ph); g.stroke(); }
+    for (i = step; i < ph; i += step) { g.beginPath(); g.moveTo(0, i); g.lineTo(pw, i); g.stroke(); }
+
+    // 轨迹（按升降着色）
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i];
+      var dt = Math.max(1, (b.t || 0) - (a.t || 0)) / 1000;
+      var vz = ((b.alt || 0) - (a.alt || 0)) / dt;
+      var col = vz > 0.8 ? '#22c55e' : (vz < -1.6 ? '#ef4444' : '#38bdf8');
+      g.strokeStyle = col;
+      g.lineWidth = Math.max(1.6, 2.4 * (pw / 360));
+      g.beginPath();
+      g.moveTo(map.xs[i - 1], map.ys[i - 1]);
+      g.lineTo(map.xs[i], map.ys[i]);
+      g.stroke();
+    }
+
+    // 起飞 / 降落
+    function marker(x, y, color, label) {
+      g.beginPath(); g.arc(x, y, 6 * (pw / 360) + 3, 0, Math.PI * 2);
+      g.fillStyle = color; g.fill();
+      g.fillStyle = '#0b1220';
+      g.font = 'bold ' + Math.round(11 * (pw / 360) + 5) + 'px sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(label, x, y);
+    }
+    if (pts.length) {
+      marker(map.xs[0], map.ys[0], '#22c55e', '起');
+      marker(map.xs[pts.length - 1], map.ys[pts.length - 1], '#f59e0b', '降');
+    }
+    return off;
+  }
+
+  function drawFlat() {
+    if (!flat.on) return;
+    var cv = flat.cv, ctx = flat.ctx;
+    if (!cv || !ctx) return;
+    var w = cv.clientWidth || 360, h = cv.clientHeight || 560;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; flat.cacheKey = ''; }
+
+    var pts = (state.disp && state.disp.length) ? state.disp : (state.points || []);
+    var key = pts.length + ':' + pw + 'x' + ph;
+    if (flat.cacheKey !== key) {
+      flat.cacheKey = key;
+      flat.map = pts.length > 1 ? flatProject(pts, pw, ph) : null;
+      flat.off = flat.map ? flatBase(pts, flat.map, pw, ph) : null;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, pw, ph);
+    if (flat.off) ctx.drawImage(flat.off, 0, 0);
+
+    if (pts.length > 1 && flat.map) {
+      // 播放进度（20 秒一轮）
+      if (!flat.t0) flat.t0 = performance.now();
+      var pct = ((performance.now() - flat.t0) / 20000) % 1;
+      var idx = Math.min(pts.length - 1, Math.floor(pct * (pts.length - 1)));
+
+      // 已飞过的部分提亮
+      ctx.strokeStyle = 'rgba(255,255,255,.55)';
+      ctx.lineWidth = Math.max(1.2, 1.8 * (pw / 360));
+      ctx.beginPath();
+      ctx.moveTo(flat.map.xs[0], flat.map.ys[0]);
+      for (var j = 1; j <= idx; j++) ctx.lineTo(flat.map.xs[j], flat.map.ys[j]);
+      ctx.stroke();
+
+      var x = flat.map.xs[idx], y = flat.map.ys[idx];
+      var r = 5 * (pw / 360) + 4;
+      var grd = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+      grd.addColorStop(0, 'rgba(56,189,248,.85)');
+      grd.addColorStop(1, 'rgba(56,189,248,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+      if (flat.info) {
+        var p = pts[idx];
+        flat.info.textContent = '进度 ' + Math.round(pct * 100) + '% · 高度 ' +
+          Math.round(p.alt || 0) + 'm · ' +
+          ((state.curTrack && state.curTrack.name) || '轨迹') + ' · ' + pts.length + ' 点';
+      }
+    } else if (flat.info) {
+      flat.info.textContent = '还没有轨迹数据，先导入或从 XC 分享一份 IGC';
+    }
+
+    flat.loop = requestAnimationFrame(drawFlat);
+  }
+
   function installCrashGuard() {
     var reloaded = false;
     function tryReload() {
@@ -4370,7 +4605,7 @@
       var n = 0;
       try { n = Number(sessionStorage.getItem('k3d_reload') || 0); } catch (e) {}
       if (n >= 1) {
-        showDiag('3D 渲染失败：请把 Chrome 的其他标签页关掉，再重开 App', true);
+        showDiag('3D 渲染失败：把 App 从后台彻底划掉再重开（同时关掉 Chrome 其他标签页）', true);
         return;
       }
       try { sessionStorage.setItem('k3d_reload', String(n + 1)); } catch (e) {}
