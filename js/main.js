@@ -4255,7 +4255,8 @@
 
     function giveUp() {
       _shareBusy = false;
-      if (depth < 8) {
+      var maxDepth = loud ? 8 : 3;
+      if (depth < maxDepth) {
         setTimeout(function () { receiveSharedTrack(depth + 1, loud); }, 700);
         return;
       }
@@ -4314,6 +4315,9 @@
     if (flag === '1') {
       showDiag('正在读取本机分享的轨迹…', false, 20000);
       setTimeout(function () { receiveSharedTrack(0, true); }, 400);
+    } else {
+      // App 可能是用「点图标」的方式把页面叫起来的，这里也悄悄试一下本机有没有文件
+      setTimeout(function () { receiveSharedTrack(0, false); }, 900);
     }
 
     window.addEventListener('hashchange', function () { importFromHash(); });
