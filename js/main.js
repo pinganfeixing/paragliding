@@ -1624,16 +1624,38 @@
     }
   }
 
-  // 导入/切换图源后：自动定位跳转到本次飞行起飞点位（无需手动拖动找飞行区域）
+  // 导入/切换图源后：自动定位跳转到本次飞行起飞点位
+  // 关键：相机不能"站在起飞点正上方"（那样视线中心会落在起飞点前方几百米，起飞点被甩出画面，
+  // 每次都要手动拖地图）。改为沿航线反方向后退一段，让视线中心正好压住起飞点。
   function zoomToTrack(positions) {
     var cesium = window.Cesium;
     try {
       var p0 = state.disp[0];
       if (!p0) return;
-      var dest = cesium.Cartesian3.fromDegrees(p0.lon, p0.lat, Math.max(p0.alt, 300) + 1200);
+      var CAM_H = 1200;                    // 相机相对起飞点的高度（米）
+      var PITCH = Math.PI / 3;             // 俯视 60°
+      var BACK = CAM_H / Math.tan(PITCH);  // 视线中心落地点到相机的水平距离
+      // 镜头朝向航线方向（取航迹约 20% 处的点作方向参考），固定朝北会看不到航线
+      var pts = state.disp;
+      var i1 = Math.min(pts.length - 1, Math.max(1, Math.round((pts.length - 1) * 0.2)));
+      var p1 = pts[i1] || p0;
+      var dLat0 = p1.lat - p0.lat;
+      var dLon0 = (p1.lon - p0.lon) * Math.cos(p0.lat * Math.PI / 180);
+      var heading = 0;
+      if (Math.sqrt(dLat0 * dLat0 + dLon0 * dLon0) * 111320 > 50) {
+        heading = Math.atan2(dLon0, dLat0); // 顺时针自北的弧度
+      }
+      // 相机后退到起飞点身后，起飞点即落在画面正中心
+      var mLat = BACK * Math.cos(heading);
+      var mLon = BACK * Math.sin(heading);
+      var dest = cesium.Cartesian3.fromDegrees(
+        p0.lon - mLon / (111320 * Math.cos(p0.lat * Math.PI / 180)),
+        p0.lat - mLat / 111320,
+        Math.max(p0.alt, 300) + CAM_H
+      );
       viewer.camera.flyTo({
         destination: dest,
-        orientation: { heading: 0, pitch: -Math.PI / 3, roll: 0 },
+        orientation: { heading: heading, pitch: -PITCH, roll: 0 },
         duration: 1.5
       });
     } catch (e) {
