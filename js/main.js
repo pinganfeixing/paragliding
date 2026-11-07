@@ -262,9 +262,13 @@
     var cesium = window.Cesium;
     if (ION_TOKEN) cesium.Ion.defaultAccessToken = ION_TOKEN;
 
-    var baseImagery = ION_TOKEN
-      ? undefined
-      : new cesium.UrlTemplateImageryProvider({ url: SOURCES.esri.url, maximumLevel: 18 });
+    // 默认底图走 ESRI 卫星（瓦片服务器在国内可达性好，实测单张瓦片 1s 内）。
+    // 之前只要配了 Ion token 就交给 Cesium 默认的 Ion Bing 影像，国内每次都要等
+    // api.cesium.com/assets.cesium.com 鉴权和瓦片，进图极慢，这里不再使用。
+    var baseImagery = new cesium.UrlTemplateImageryProvider({
+      url: SOURCES.esri.url,
+      maximumLevel: 18
+    });
 
     viewer = new cesium.Viewer('cesiumContainer', {
       imageryProvider: baseImagery,
@@ -303,6 +307,13 @@
     viewer.scene.skyBox.show = false;
     viewer.scene.skyAtmosphere.show = false;
     viewer.scene.fog.enabled = false;
+    // —— 出图速度优先：手机屏幕上瓦片少一点、缓存多一点，先铺满再变清晰 ——
+    try {
+      viewer.scene.globe.maximumScreenSpaceError = 3;   // 默认 2，调大=少请求瓦片
+      viewer.scene.globe.tileCacheSize = 220;           // 回看/拖动不重复下载
+      viewer.scene.globe.preloadAncestors = false;
+      viewer.scene.globe.preloadSiblings = false;
+    } catch (e) { /* 低版本无这些属性 */ }
 
     // 点击地图：观看（播放）时切换顶部工具行显隐；暂停时工具行常驻不隐藏
     //（Cesium 自动区分单击与拖拽旋转，不会误触发）
@@ -998,50 +1009,75 @@
   //   - 贴地（无真实地形默认）：贴地表，奥维式轨迹观感
   //   - 真实（有 Ion 地形）：气压高度为 Z 轴，低于地形自动抬升 35m 与山体对齐
   //   - GCJ 模式（高德底图）：坐标转换 + 贴地
+  // 地形高度采样：
+  //   每条轨迹几百到上千个点，逐点 sampleTerrainMostDetailed 会让 Cesium 串行请求几十个
+  //   地形瓦片（Cesium Ion 在国内很慢），手机上就表现为"地图半天不出来"。
+  //   这里抽稀到最多 MAX_SAMPLES 个点采样，其余按索引线性插值；再加 6 秒超时兜底，
+  //   采样不及时就先用气压高度渲染，绝不阻塞轨迹显示。
+  var MAX_TERRAIN_SAMPLES = 80;
+  function terrainHeights(pts, cb) {
+    var cesium = window.Cesium;
+    var n = pts.length;
+    var step = Math.max(1, Math.ceil(n / MAX_TERRAIN_SAMPLES));
+    var idxs = [], cartos = [];
+    for (var i = 0; i < n; i += step) {
+      idxs.push(i);
+      cartos.push(new cesium.Cartographic(cesium.Math.toRadians(pts[i].lon), cesium.Math.toRadians(pts[i].lat)));
+    }
+    if (idxs[idxs.length - 1] !== n - 1) {
+      idxs.push(n - 1);
+      cartos.push(new cesium.Cartographic(cesium.Math.toRadians(pts[n - 1].lon), cesium.Math.toRadians(pts[n - 1].lat)));
+    }
+    var done = false;
+    var timer = setTimeout(function () {
+      if (!done) { done = true; cb(null); }
+    }, 6000);
+    function finish(upd) {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      if (!upd) { cb(null); return; }
+      var hs = new Array(n);
+      for (var k = 0; k < idxs.length; k++) {
+        var h = upd[k] && upd[k].height != null ? upd[k].height : null;
+        var from = idxs[k];
+        var to = (k < idxs.length - 1) ? idxs[k + 1] : n - 1;
+        var h2 = null;
+        if (k < idxs.length - 1 && upd[k + 1] && upd[k + 1].height != null) h2 = upd[k + 1].height;
+        if (h == null) continue;
+        for (var p = from; p <= to && p < n; p++) {
+          if (h2 == null || to === from) { hs[p] = h; continue; }
+          var t = (p - from) / (to - from);
+          hs[p] = h * (1 - t) + h2 * t;
+        }
+      }
+      cb(hs);
+    }
+    try {
+      cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartos)
+        .then(finish)
+        .catch(function () { finish(null); });
+    } catch (e) { finish(null); }
+  }
+
   function buildTerrainAdjustedPositions(cb) {
     var cesium = window.Cesium;
     var pts = state.disp;
     var gcj = state.coordSys === 'gcj';
     var ground = gcj || !state.terrainReady;
-    if (ground) {
-      var positions = [];
-      if (!gcj && state.terrainReady) {
-        var cartos = [];
-        for (var j = 0; j < pts.length; j++) {
-          cartos.push(new cesium.Cartographic(cesium.Math.toRadians(pts[j].lon), cesium.Math.toRadians(pts[j].lat)));
-        }
-        cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartos)
-          .then(function (updated) {
-            for (var k = 0; k < pts.length; k++) {
-              var gh = updated[k] && updated[k].height != null ? updated[k].height : 0;
-              positions[k] = ptPos(pts[k], gh + 25);
-            }
-            cb(positions);
-          })
-          .catch(function () { cb(positions); });
-      } else {
-        for (var i = 0; i < pts.length; i++) positions.push(ptPos(pts[i], 0));
-        cb(positions);
+
+    function finish(hs) {
+      var out = [];
+      for (var i = 0; i < pts.length; i++) {
+        var gh = hs && hs[i] != null ? hs[i] : null;
+        if (ground) out.push(ptPos(pts[i], gh == null ? 0 : gh + 25));
+        else out.push(ptPos(pts[i], gh == null ? pts[i].alt : Math.max(pts[i].alt, gh + 35)));
       }
-      return;
+      cb(out);
     }
-    // 真实高度：气压高度为 Z，低于地形抬升
-    var positionsReal = [];
-    for (var m = 0; m < pts.length; m++) positionsReal.push(ptPos(pts[m], pts[m].alt));
-    var cartosReal = [];
-    for (var n = 0; n < pts.length; n++) {
-      cartosReal.push(new cesium.Cartographic(cesium.Math.toRadians(pts[n].lon), cesium.Math.toRadians(pts[n].lat)));
-    }
-    cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartosReal)
-      .then(function (updated) {
-        for (var k = 0; k < pts.length; k++) {
-          var groundH = updated[k] && updated[k].height != null ? updated[k].height : pts[k].alt;
-          var h = Math.max(pts[k].alt, groundH + 35);
-          positionsReal[k] = ptPos(pts[k], h);
-        }
-        cb(positionsReal);
-      })
-      .catch(function () { cb(positionsReal); });
+
+    // 贴地理但又没有地形数据（椭球/高德 GCJ）：不需要采样，直接贴 0
+    if (ground && (gcj || !state.terrainReady)) { finish(null); return; }
+    terrainHeights(pts, finish);
   }
 
   // 轨迹线（径大式尾迹）：
