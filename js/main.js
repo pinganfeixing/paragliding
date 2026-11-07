@@ -2779,11 +2779,15 @@
     document.getElementById('authOk').addEventListener('click', submitAuth);
     // 发帖子（服务器帖子）
     var npImageUrl = '';
-    document.getElementById('btnNewPost').addEventListener('click', function () {
-      npImageUrl = '';
-      document.getElementById('npImagePreview').innerHTML = '';
-      document.getElementById('newPostModal').style.display = 'flex';
-    });
+    // #btnNewPost 在后续改版里已从界面移除，这里必须判空，否则整段初始化会中断
+    var btnNewPost = document.getElementById('btnNewPost');
+    if (btnNewPost) {
+      btnNewPost.addEventListener('click', function () {
+        npImageUrl = '';
+        document.getElementById('npImagePreview').innerHTML = '';
+        document.getElementById('newPostModal').style.display = 'flex';
+      });
+    }
     document.getElementById('npAddImage').addEventListener('click', function () {
       document.getElementById('npImageFile').click();
     });
