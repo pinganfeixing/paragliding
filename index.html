@@ -11,7 +11,7 @@
   <link href="vendor/cesium/Widgets/widgets.css" rel="stylesheet" />
   <!-- ECharts（高度曲线联动，本站自托管） -->
   <script src="vendor/echarts.min.js"></script>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=47" />
   <script>
     // PWA 注册（离线可打开；注意：Cesium/ECharts 为 CDN 资源，卫星瓦片仍需联网）
     if ('serviceWorker' in navigator) {
@@ -85,7 +85,7 @@
 
     <div class="track-info">
       <div class="track-title" id="trackName">打开右上角「导入」加载 IGC 轨迹</div>
-      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.20</div>
+      <div class="track-meta" id="trackMeta">支持 .igc / .kml / .gpx · 自动定位起飞点 · v3.21</div>
       <div class="track-meta" id="trackWeather" style="color:#5eead4"></div>
       <div class="track-summary" id="trackSummary"></div>
       <div class="track-coord" id="trackCoord"></div>
@@ -553,6 +553,18 @@
     </div>
   </div>
 
+  <!-- ========== 风险段详情弹层（点时间轴红点/高度曲线风险段触发） ========== -->
+  <div id="riskModal" class="modal">
+    <div class="modal-box">
+      <div class="modal-title" id="riskTitle">风险段</div>
+      <div id="riskBody"></div>
+      <div class="modal-actions">
+        <button class="pv-btn pv-ghost" id="riskClose">关闭</button>
+        <button class="pv-btn" id="riskPlay">从这一段播放</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Cesium Ion token：已配置，启用 Bing 高清卫星 + Cesium World Terrain（SRTM30 级真实山体）
     var ION_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjNsSHhFN3llaUFBakZ5d0wiLCJqdGkiOiI3YzJhNDgzMC1hYzI5LTRjMDYtODY1Ni01NDg2MTRhYjBiMWIiLCJpZCI6NTI0NzE5LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTE5OTI1MTV9.WwFRuA_h_igdAH2tNePzME7xwTU6dCfBXdjimtGzCIg';
@@ -564,7 +576,7 @@
   <script src="js/app-core.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/api.js"></script>
-  <script src="js/main.js?v=46"></script>
+  <script src="js/main.js?v=47"></script>
   <!-- 站点访问统计（不蒜子，免费；统计的是网页访问 PV/UV） -->
   <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
   <script>
