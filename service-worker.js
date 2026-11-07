@@ -4,7 +4,7 @@
  * 运行时先网络、失败回退缓存（CDN 的 Cesium/ECharts 与卫星瓦片仍需联网）。
  * 版本号变更即清理旧缓存，避免更新后加载到过期外壳。
  */
-var CACHE_NAME = 'sanji-h5-v33';
+var CACHE_NAME = 'sanji-h5-v34';
 var APP_SHELL = [
   './',
   './index.html',
@@ -36,7 +36,8 @@ self.addEventListener('fetch', function (e) {
   // 只拦截同源 GET（CDN 资源交给浏览器默认行为，避免跨域缓存污染）
   if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
-    fetch(e.request)
+    // cache:'no-store' 强制绕过浏览器 HTTP 缓存，否则手机可能一直拿到旧外壳
+    fetch(e.request, { cache: 'no-store' })
       .then(function (resp) {
         // 网络成功 → 更新缓存副本（保持离线可用为最新外壳）
         if (resp && resp.ok) {
