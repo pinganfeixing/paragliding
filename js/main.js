@@ -4233,18 +4233,40 @@
     return true;
   }
 
-  function receiveSharedTrack(depth) {
+  function paramOf(k) {
+    var m = new RegExp('[?&]' + k + '=([^&#]*)').exec(location.search || '');
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function clearShareFlag() {
+    try {
+      var s = (location.search || '').replace(/[?&]s=[^&#]*/g, '').replace(/[?&]w=[^&#]*/g, '');
+      if (s === '?' || s === '') s = '';
+      else if (s.charAt(0) !== '?') s = '?' + s.replace(/^&/, '');
+      history.replaceState(null, '', location.pathname + s);
+    } catch (e) {}
+  }
+
+  function receiveSharedTrack(depth, loud) {
     if (_shareBusy) return;
     _shareBusy = true;
     depth = depth || 0;
     var ports = SHARE_PORTS.slice();
 
-    function next() {
-      if (!ports.length) {
-        _shareBusy = false;
-        if (depth < 5) setTimeout(function () { receiveSharedTrack(depth + 1); }, 700);
+    function giveUp() {
+      _shareBusy = false;
+      if (depth < 8) {
+        setTimeout(function () { receiveSharedTrack(depth + 1, loud); }, 700);
         return;
       }
+      if (loud) {
+        showDiag('没从本机读到分享轨迹：浏览器拦掉了对 127.0.0.1 的请求', true, 20000);
+        clearShareFlag();
+      }
+    }
+
+    function next() {
+      if (!ports.length) { giveUp(); return; }
       var port = ports.shift();
       fetch('http://127.0.0.1:' + port + '/pending', { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -4253,15 +4275,17 @@
           return fetch('http://127.0.0.1:' + port + '/track', { cache: 'no-store' })
             .then(function (r) { return r.text(); })
             .then(function (text) {
+              _shareBusy = false;
+              clearShareFlag();
               try {
                 var t = core.parseTrack(text, info.name);
+                if (!t || !t.points || !t.points.length) throw new Error('轨迹里没有可用的坐标点');
                 var nm = info.name.replace(/\.[^.]+$/, '');
                 loadTrack(t.points, nm + ' 的飞行（来自分享）', t.meta);
-                showDiag('已从 XC 接收轨迹：' + info.name, false);
+                showDiag('已从 XC 接收轨迹：' + info.name + '（' + t.points.length + ' 点）', false, 12000);
               } catch (err) {
-                showDiag('分享的轨迹解析失败：' + err.message, true);
+                showDiag('分享的轨迹解析失败：' + (err && err.message ? err.message : err), true, 20000);
               }
-              _shareBusy = false;
             });
         })
         .catch(function () { next(); });
@@ -4270,12 +4294,36 @@
   }
 
   function bootShareReceiver() {
-    if (!importFromHash()) setTimeout(function () { receiveSharedTrack(0); }, 700);
+    // 通道一：URL 片段/查询里直接带数据（旧式，兼容）
+    if (importFromHash()) {
+      clearShareFlag();
+      return;
+    }
+
+    // 通道二：App 把文件放在 127.0.0.1 临时服务，并用 ?s=1 通知网页来取
+    var flag = paramOf('s');
+    if (flag === 'err') {
+      var w = paramOf('w');
+      var why = w === '2'
+        ? 'App 读取分享内容时出错'
+        : 'App 没有拿到轨迹文件（XC 可能只是分享了文字，请改用「导出 IGC」再分享）';
+      showDiag('分享失败：' + why, true, 20000);
+      clearShareFlag();
+      return;
+    }
+    if (flag === '1') {
+      showDiag('正在读取本机分享的轨迹…', false, 20000);
+      setTimeout(function () { receiveSharedTrack(0, true); }, 400);
+    }
+
     window.addEventListener('hashchange', function () { importFromHash(); });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') {
         _shareBusy = false;
-        if (!importFromHash()) setTimeout(function () { receiveSharedTrack(0); }, 300);
+        if (!importFromHash()) {
+          var f = paramOf('s');
+          setTimeout(function () { receiveSharedTrack(0, f === '1'); }, 300);
+        }
       }
     });
   }
