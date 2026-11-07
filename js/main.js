@@ -4373,6 +4373,10 @@
   }
 
   function bootShareReceiver() {
+    // 调试可见：把页面真实看到的参数打到屏幕左上提示条上
+    if (/track=/.test(location.search || '')) {
+      showDiag('收到分享参数：' + (location.search || ''), false, 30000);
+    }
     // 通道零：App 已把分享的 IGC 传到服务器，页面按短 id 取回（最稳，不受本机端口限制）
     var tid = paramOf('track');
     if (tid) {
@@ -4627,11 +4631,33 @@
   }
 
   // ============ 启动 ============
+  // 每一步单独包 try：init 里任何一处报错都不能把后续的分享接收连带掐掉
+  // （之前就是这个原因：3D 起来了，bootShareReceiver 却被跳过了）
+  function startApp() {
+    try {
+      init();
+    } catch (e) {
+      try { showDiag('启动异常：' + (e && e.message ? e.message : e), true, 30000); } catch (_) {}
+    }
+    try { installCrashGuard(); } catch (e) {}
+    try {
+      bootShareReceiver();
+    } catch (e) {
+      try { showDiag('分享接收异常：' + (e && e.message ? e.message : e), true, 30000); } catch (_) {}
+    }
+  }
+  // 早期异常也要能看见，否则只会得到一片空白
+  window.addEventListener('error', function (e) {
+    try {
+      var m = (e && e.message) || '';
+      if (/shader|Rendering has stopped|Context Lost/i.test(m)) return; // 这些由 installCrashGuard 处理
+      showDiag('JS 错误：' + m, true, 30000);
+    } catch (_) {}
+  });
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { init(); installCrashGuard(); bootShareReceiver(); });
+    document.addEventListener('DOMContentLoaded', startApp);
   } else {
-    init();
-    installCrashGuard();
-    bootShareReceiver();
+    startApp();
   }
 })();
