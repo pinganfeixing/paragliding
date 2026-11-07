@@ -148,14 +148,14 @@
   // ============ 工具函数 ============
 
   // 屏幕诊断条（错误 / 容错提示）
-  function showDiag(msg, isErr) {
+  function showDiag(msg, isErr, ms) {
     var bar = document.getElementById('diagBar');
     if (!bar) return;
     bar.textContent = msg;
     bar.style.background = isErr ? 'rgba(127,29,29,.92)' : 'rgba(30,64,175,.92)';
     bar.style.display = 'block';
     clearTimeout(showDiag._t);
-    showDiag._t = setTimeout(function () { bar.style.display = 'none'; }, 6000);
+    showDiag._t = setTimeout(function () { bar.style.display = 'none'; }, ms || 6000);
   }
 
   // ---- GCJ-02（高德/奥维国内图层）坐标转换 ----
@@ -4191,21 +4191,44 @@
 
   function importFromHash() {
     var h = location.hash || '';
-    var m = /share=([A-Za-z0-9\-_]+)/.exec(h);
-    if (!m) return false;
+    var q = location.search || '';
+
+    // App 侧没拿到文件时会把原因塞进 #shareerr=，这里直接显示，不让用户猜
+    var em = /shareerr=([^&]+)/.exec(h) || /shareerr=([^&]+)/.exec(q);
+    if (em) {
+      var why = 'App 没有拿到轨迹文件';
+      try { why = decodeURIComponent(em[1]); } catch (e) {}
+      showDiag('分享失败：' + why, true, 20000);
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      return true;
+    }
+
+    var m = /share=([A-Za-z0-9\-_]+)/.exec(h) || /share=([A-Za-z0-9\-_]+)/.exec(q);
+    if (!m) {
+      // 明显是被分享唤起，但没读到数据 —— 直接把诊断信息打在屏幕上
+      if (location.href.length > 100) {
+        showDiag('没读到分享数据（链接 ' + location.href.length + ' 字符 / 片段 '
+          + h.length + ' 字符），请在 XC 里重新分享一次', true, 20000);
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
+      return false;
+    }
+
     var name = 'track.igc';
-    var nm = /n=([^&]+)/.exec(h);
+    var nm = /n=([^&]+)/.exec(h) || /n=([^&]+)/.exec(q);
     if (nm) { try { name = decodeURIComponent(nm[1]); } catch (e) {} }
-    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    showDiag('收到分享数据（' + m[1].length + ' 字符），正在解析…', false, 20000);
     gunzipBytes(b64ToBytes(m[1]))
       .then(function (text) {
         var t = core.parseTrack(text, name);
+        if (!t || !t.points || !t.points.length) throw new Error('轨迹里没有可用的坐标点');
         var base = name.replace(/\.[^.]+$/, '');
         loadTrack(t.points, base + ' 的飞行（来自分享）', t.meta);
-        showDiag('已从 XC 导入轨迹：' + name, false);
+        showDiag('已从 XC 导入轨迹：' + name + '（' + t.points.length + ' 点）', false, 12000);
       })
       .catch(function (err) {
-        showDiag('分享的轨迹导入失败：' + (err && err.message ? err.message : err), true);
+        showDiag('分享的轨迹导入失败：' + (err && err.message ? err.message : err), true, 20000);
       });
     return true;
   }
