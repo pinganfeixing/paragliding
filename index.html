@@ -36,10 +36,16 @@
     <button id="tokenClose" class="mini-btn">知道了</button>
   </div>
 
-  <!-- ========== 启动画面（海报，Cesium 就绪后淡出） ========== -->
-  <div id="splash" style="position:fixed; inset:0; z-index:99999; background:linear-gradient(180deg,#0b1220 0%,#0e1a30 50%,#0b1220 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;">
-    <img src="images/poster.jpg" alt="滑翔伞趣飞行" style="max-width:80vw; max-height:72vh; width:auto; height:auto; object-fit:contain; border-radius:16px; box-shadow:0 12px 48px rgba(0,0,0,.55);" />
-    <div style="color:#7dd3fc; font-size:16px; font-weight:700; letter-spacing:3px;">滑翔伞趣飞行</div>
+  <!-- ========== 启动画面（纯文字+进度条，Cesium 就绪后淡出） ========== -->
+  <style>
+    @keyframes splashbar { 0% { transform: translateX(-105%); } 100% { transform: translateX(265%); } }
+    #splash.fade-out { opacity: 0; transition: opacity .45s ease; pointer-events: none; }
+  </style>
+  <div id="splash" style="position:fixed; inset:0; z-index:99999; background:linear-gradient(180deg,#0b1220 0%,#0e1a30 50%,#0b1220 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;">
+    <div style="color:#e2e8f0; font-size:21px; font-weight:800; letter-spacing:6px;">小凯趣飞行</div>
+    <div style="width:132px; height:3px; background:rgba(125,211,252,.15); border-radius:2px; overflow:hidden;">
+      <div style="width:40%; height:100%; background:#38bdf8; border-radius:2px; animation:splashbar 1.1s ease-in-out infinite alternate;"></div>
+    </div>
     <div style="color:#475569; font-size:11px; letter-spacing:1px;">3D 轨迹复盘 · 加载中…</div>
   </div>
 
@@ -62,7 +68,7 @@
       <div class="brand">🪂 轨迹复盘 <span class="brand-sub">3D 飞行分析工具</span></div>
       <div class="tool-group">
         <label class="btn" id="btnImport" style="position:relative;overflow:hidden">导入
-          <input id="fileInput" type="file" accept=".igc,.IGC,.kml,.KML,.gpx,.GPX,.kmz,.txt" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" />
+          <input id="fileInput" type="file" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" />
         </label>
         <div class="btn-group" id="sourceGroup">
           <button class="btn btn-active" data-src="esri">卫星</button>
@@ -132,7 +138,7 @@
         <button class="pv-btn pv-ghost" id="btnRank">排行榜</button>
         <button class="pv-btn pv-ghost" id="btnAuth">登录/注册</button>
         <button class="pv-btn" id="btnUploadTrack">＋ 上传轨迹</button>
-        <input id="fileUpload" type="file" accept=".igc,.IGC,.kml,.KML,.gpx,.GPX,.kmz,.txt" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
+        <input id="fileUpload" type="file" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0" />
       </div>
     </div>
     <div class="pv-section">
@@ -557,7 +563,7 @@
   <script src="js/app-core.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/api.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/main.js?v=35"></script>
   <!-- 站点访问统计（不蒜子，免费；统计的是网页访问 PV/UV） -->
   <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
   <script>
